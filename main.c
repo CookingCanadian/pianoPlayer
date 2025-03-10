@@ -1,66 +1,45 @@
 #include "raylib.h"
+#include <stdio.h>
 
-#if defined(PLATFORM_WEB)
-    #include <emscripten/emscripten.h>
-#endif
-
-Camera camera = { 0 };
-Vector3 cubePosition = { 0 };
-
-static void UpdateDrawFrame(void);        
-
-
-int main() {    
-    const int screenWidth = 800;
-    const int screenHeight = 450;
-
-    InitWindow(screenWidth, screenHeight, "raylib");
-
-    camera.position = (Vector3){ 10.0f, 10.0f, 8.0f };
-    camera.target = (Vector3){ 0.0f, 0.0f, 0.0f };
-    camera.up = (Vector3){ 0.0f, 1.0f, 0.0f };
-    camera.fovy = 60.0f;
-    camera.projection = CAMERA_PERSPECTIVE;
-
-   
-
-#if defined(PLATFORM_WEB)
-    emscripten_set_main_loop(UpdateDrawFrame, 60, 1);
-#else
-    SetTargetFPS(60);               
-
-
-   
-    while (!WindowShouldClose())    
-    {
-        UpdateDrawFrame();
-    }
-#endif
-
-   
-    CloseWindow();                
-
-    return 0;
+// Helper function to convert hex color (e.g., "#FFFFFF") to raylib color
+Color toHex(const char* hex) {
+    if (hex[0] == '#') hex++;
+    
+    unsigned int r, g, b;
+    sscanf(hex, "%2x%2x%2x", &r, &g, &b); 
+    return (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 }; 
 }
 
-static void UpdateDrawFrame(void) {
-    UpdateCamera(&camera, CAMERA_ORBITAL);
+int main(void) {
+    const int screenWidth = 720;
+    const int screenHeight = 360;
 
-    BeginDrawing();
+    InitWindow(screenWidth, screenHeight, "noctivox");
+    SetTargetFPS(60);
 
-        ClearBackground(RAYWHITE);
+    // Static background buffer
+    RenderTexture2D backgroundTexture = LoadRenderTexture(screenWidth, screenHeight);
 
-        BeginMode3D(camera);
+    // Draw background once at startup for cheap operation
+    BeginTextureMode(backgroundTexture);
+        ClearBackground(toHex("#191A1F"));
+        DrawRectangle(210, 48, 510, 312, toHex("#121215")); 
 
-            DrawCube(cubePosition, 2.0f, 2.0f, 2.0f, RED);
-            DrawCubeWires(cubePosition, 2.0f, 2.0f, 2.0f, MAROON);
-            DrawGrid(10, 1.0f);
+    EndTextureMode();
 
-        EndMode3D();
+    while (!WindowShouldClose()) {
+        BeginDrawing();
+            DrawTextureRec(backgroundTexture.texture, 
+                          (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
+                          (Vector2){ 0, 0 }, 
+                          WHITE);
 
-        DrawText("raylib go brrr", 10, 40, 20, DARKGRAY);
 
-        DrawFPS(10, 10);
+        EndDrawing();
+    }
 
-    EndDrawing();
+    // Cleanup
+    UnloadRenderTexture(backgroundTexture);
+    CloseWindow();
+    return 0;
 }
