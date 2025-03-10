@@ -1,7 +1,7 @@
 #include "raylib.h"
 #include <stdio.h>
 
-// Helper function to convert hex color (e.g., "#FFFFFF") to raylib color
+// Helper function to convert hex colour (e.g., "#FFFFFF") to raylib color
 Color toHex(const char* hex) {
     if (hex[0] == '#') hex++;
     
@@ -14,7 +14,7 @@ int main(void) {
     const int screenWidth = 720;
     const int screenHeight = 360;
 
-    InitWindow(screenWidth, screenHeight, "noctivox");
+    InitWindow(screenWidth, screenHeight, "noctivox | a virtual piano player");
     SetTargetFPS(60);
 
     // Static background buffer
@@ -22,9 +22,16 @@ int main(void) {
 
     // Draw background once at startup for cheap operation
     BeginTextureMode(backgroundTexture);
+        // Main colours
         ClearBackground(toHex("#191A1F"));
-        DrawRectangle(210, 48, 510, 312, toHex("#121215")); 
+        DrawRectangle(210, 48, 510, 312, toHex("#121215"));         
+        DrawRectangle(216, 54, 498, 246, toHex("#272930")); 
+        DrawRectangle(216, 306, 498, 48, toHex("#272930")); 
 
+        // Decor
+        DrawRectangle(14, 48, 180, 1, toHex("#272C3C")); 
+        DrawRectangle(222, 85, 210, 1, toHex("#494D5A")); 
+        DrawRectangle(355, 312, 1, 36, toHex("#494D5A")); 
     EndTextureMode();
 
     while (!WindowShouldClose()) {
