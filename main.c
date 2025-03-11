@@ -39,7 +39,7 @@ void unloadFonts(void) {
 // Textbox struct for editable input fields
 typedef struct {
     Rectangle bounds;           // Position and size
-    char text[64];              // Text buffer (63 chars + null terminator)
+    char text[256];             // Increased buffer for larger text
     int textLength;             // Current length of text
     bool editing;               // Is this textbox active?
     float cursorBlink;          // Blink timer for cursor
@@ -47,40 +47,48 @@ typedef struct {
     Font font;                  // Custom font
     float fontSize;             // Font size
     float horizontalOffset;     // Horizontal offset for long text
+    float verticalOffset;       // Vertical offset for scrolling
     float backspaceTimer;       // Time for multi-character removal
     const char* placeholder;    // Placeholder text
 } Textbox;
 
-// Function to render textbox text
+// Function to render textbox text with scrolling
 void drawTextboxText(Textbox* textbox, Color textColor) {
     const char* displayText = (textbox->textLength == 0 && !textbox->editing) ? textbox->placeholder : textbox->text;
-    float textWidth = MeasureTextEx(textbox->font, displayText, textbox->fontSize, 1).x;
+    Vector2 textSize = MeasureTextEx(textbox->font, displayText, textbox->fontSize, 1);
     float maxTextWidth = textbox->bounds.width - 10; // 5px padding on both sides
+    float maxTextHeight = textbox->bounds.height - 10; // 5px padding top and bottom
 
-    if (textWidth > maxTextWidth) {
-        textbox->horizontalOffset = textWidth - maxTextWidth;
+    // Horizontal offset (unchanged)
+    if (textSize.x > maxTextWidth) {
+        textbox->horizontalOffset = textSize.x - maxTextWidth;
     } else {
         textbox->horizontalOffset = 0;
     }
 
-    Rectangle scissorRect = { textbox->bounds.x + 5, textbox->bounds.y + 5, maxTextWidth, textbox->bounds.height - 10 };
+    // Scissor mode for clipping
+    Rectangle scissorRect = { textbox->bounds.x + 5, textbox->bounds.y + 5, maxTextWidth, maxTextHeight };
     BeginScissorMode(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
+    
+    // Draw text with vertical offset
     DrawTextEx(textbox->font, displayText, 
-               (Vector2){ textbox->bounds.x + 5 - textbox->horizontalOffset, textbox->bounds.y + 5 }, 
+               (Vector2){ textbox->bounds.x + 5 - textbox->horizontalOffset, textbox->bounds.y + 5 - textbox->verticalOffset }, 
                textbox->fontSize, 1, textColor);
-    EndScissorMode();
 
+    // Draw cursor if editing
     if (textbox->editing && textbox->cursorBlink < 0.5f) {
-        float cursorX = textbox->bounds.x + 5 + textWidth - textbox->horizontalOffset;
-        DrawRectangle(cursorX, textbox->bounds.y + 5, 2, textbox->fontSize, textColor);
+        float cursorX = textbox->bounds.x + 5 + textSize.x - textbox->horizontalOffset;
+        float cursorY = textbox->bounds.y + 5 - textbox->verticalOffset;
+        DrawRectangle(cursorX, cursorY, 2, textbox->fontSize, textColor);
     }
+    EndScissorMode();
 }
 
-// Input handling for textboxes
+// Input handling for textboxes with paste support and scrolling
 void handleTextboxInput(Textbox* textbox) {
     int key = GetCharPressed();
     while (key > 0) {
-        if (textbox->textLength < 63) {
+        if (textbox->textLength < 255) { // Adjusted for larger buffer
             if (textbox->numericOnly) {
                 if (key >= '0' && key <= '9') { 
                     textbox->text[textbox->textLength++] = (char)key;
@@ -94,6 +102,27 @@ void handleTextboxInput(Textbox* textbox) {
             }
         }
         key = GetCharPressed();
+    }
+
+    // Paste support (Ctrl+V or Cmd+V)
+    if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_V)) {
+        const char* clipboard = GetClipboardText();
+        if (clipboard) {
+            int len = strlen(clipboard);
+            int spaceLeft = 255 - textbox->textLength;
+            int charsToCopy = (len < spaceLeft) ? len : spaceLeft;
+            if (textbox->numericOnly) {
+                for (int i = 0; i < charsToCopy; i++) {
+                    if (clipboard[i] >= '0' && clipboard[i] <= '9') {
+                        textbox->text[textbox->textLength++] = clipboard[i];
+                    }
+                }
+            } else {
+                strncpy(textbox->text + textbox->textLength, clipboard, charsToCopy);
+                textbox->textLength += charsToCopy;
+            }
+            textbox->text[textbox->textLength] = '\0';
+        }
     }
 
     if (IsKeyPressed(KEY_BACKSPACE) && textbox->textLength > 0) {
@@ -110,6 +139,20 @@ void handleTextboxInput(Textbox* textbox) {
     }
     if (IsKeyReleased(KEY_BACKSPACE)) {
         textbox->backspaceTimer = 0;
+    }
+
+    // Scrolling with mouse wheel
+    if (CheckCollisionPointRec(GetMousePosition(), textbox->bounds)) {
+        float wheel = GetMouseWheelMove();
+        float textHeight = MeasureTextEx(textbox->font, textbox->text, textbox->fontSize, 1).y;
+        float maxHeight = textbox->bounds.height - 10;
+        if (textHeight > maxHeight) {
+            textbox->verticalOffset -= wheel * 20.0f; // Scroll speed
+            if (textbox->verticalOffset < 0) textbox->verticalOffset = 0;
+            if (textbox->verticalOffset > textHeight - maxHeight) textbox->verticalOffset = textHeight - maxHeight;
+        } else {
+            textbox->verticalOffset = 0;
+        }
     }
 
     textbox->cursorBlink += GetFrameTime();
@@ -175,14 +218,28 @@ int main(void) {
     float resolution[2] = { (float)screenWidth, (float)screenHeight };
     SetShaderValue(blurShader, resolutionLoc, resolution, SHADER_UNIFORM_VEC2);
 
-    // Textboxes with placeholders
+    // Textboxes with placeholders (base layer)
     Textbox songSearchInput = { 
         { 14, 55, 150, 24 }, "", 0, false, 0.0f, 
-        false, italicGFS, 14, 0, 0, "search for songs" 
+        false, italicGFS, 14, 0, 0, 0, "search for songs" 
     };
     Textbox bpmValueEdit = { 
         { 274, 319, 60, 30 }, "", 0, false, 0.0f, 
-        true, italicGFS, 14, 0, 0, "100" 
+        true, italicGFS, 14, 0, 0, 0, "100" 
+    };
+
+    // Textboxes for upload panel (no placeholders, larger paste area buffer)
+    Textbox pasteAreaInput = { 
+        { 170, 90, 380, 120 }, "", 0, false, 0.0f, 
+        false, italicGFS, 14, 0, 0, 0, "" 
+    };
+    Textbox songNameInput = { 
+        { 170, 226, 297, 20 }, "", 0, false, 0.0f, 
+        false, italicGFS, 14, 0, 0, 0, "" 
+    };
+    Textbox bpmValueInput = { 
+        { 486, 226, 64, 20 }, "", 0, false, 0.0f, 
+        true, italicGFS, 14, 0, 0, 0, "" 
     };
 
     // Define selectable areas and toggle elements
@@ -190,11 +247,8 @@ int main(void) {
     Rectangle uploadPanel = { 160, 45, 400, 270 };
     Rectangle cancelButton = { 343, 276, 96, 30 }; 
     Rectangle saveButton = { 454, 276, 96, 30 };
-    Rectangle uploadMidi = { 454, 66, 96, 20 };
-    Rectangle pasteArea = { 170, 90, 380, 120 };
-    Rectangle songNameInput = { 170, 226, 297, 20 };
-    Rectangle bpmValueInput = { 486, 226, 64, 20 };
     bool isUploadVisible = false;
+    char* selectedMidiPath = NULL; // Store MIDI file path
 
     // Bound variables
     char songName[64] = "";
@@ -203,18 +257,72 @@ int main(void) {
     while (!WindowShouldClose()) {
         Vector2 mousePosition = GetMousePosition();
 
+        // Check for dropped files (works globally, but we'll process in upload panel)
+        if (IsFileDropped() && isUploadVisible) {
+            FilePathList droppedFiles = LoadDroppedFiles();
+            for (int i = 0; i < droppedFiles.count; i++) {
+                if (IsFileExtension(droppedFiles.paths[i], ".mid")) {
+                    if (selectedMidiPath) free(selectedMidiPath); // Free previous path
+                    selectedMidiPath = strdup(droppedFiles.paths[i]); // Copy the path
+                    break; // Take the first .mid file
+                }
+            }
+            UnloadDroppedFiles(droppedFiles);
+        }
+
+        // Define save conditions
+        bool canSave = (pasteAreaInput.textLength > 0 || selectedMidiPath != NULL) && 
+                       songNameInput.textLength > 0 && 
+                       bpmValueInput.textLength > 0 && atoi(bpmValueInput.text) > 0;
+
         // Input handling based on z-index
         if (isUploadVisible) {
             // Upload panel layer (above blur)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                bool wasEditing = pasteAreaInput.editing || songNameInput.editing || bpmValueInput.editing;
+                pasteAreaInput.editing = CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds);
+                songNameInput.editing = CheckCollisionPointRec(mousePosition, songNameInput.bounds);
+                bpmValueInput.editing = CheckCollisionPointRec(mousePosition, bpmValueInput.bounds);
+
                 if (CheckCollisionPointRec(mousePosition, cancelButton)) {
                     isUploadVisible = false;
-                    sceneTextureNeedsUpdate = true; // Redraw base layer when closing
+                    sceneTextureNeedsUpdate = true;
                 }
+                if (CheckCollisionPointRec(mousePosition, saveButton) && canSave) {
+                    // Save logic here (e.g., process pasteAreaInput.text, songNameInput.text, bpmValueInput.text, selectedMidiPath)
+                    isUploadVisible = false;
+                    sceneTextureNeedsUpdate = true;
+                }
+
+                if (pasteAreaInput.editing && !wasEditing && pasteAreaInput.textLength == 0) pasteAreaInput.textLength = 0;
+                if (songNameInput.editing && !wasEditing && songNameInput.textLength == 0) songNameInput.textLength = 0;
+                if (bpmValueInput.editing && !wasEditing && bpmValueInput.textLength == 0) bpmValueInput.textLength = 0;
             }
+
+            // Exit editing on Enter
+            if (IsKeyPressed(KEY_ENTER)) {
+                pasteAreaInput.editing = false;
+                songNameInput.editing = false;
+                bpmValueInput.editing = false;
+            }
+
+            if (pasteAreaInput.editing) handleTextboxInput(&pasteAreaInput);
+            if (songNameInput.editing) handleTextboxInput(&songNameInput);
+            if (bpmValueInput.editing) handleTextboxInput(&bpmValueInput);
+
             // Cursor for upload panel
-            if (CheckCollisionPointRec(mousePosition, cancelButton)) {
-                SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+            if (pasteAreaInput.editing || songNameInput.editing || bpmValueInput.editing) {
+                SetMouseCursor(MOUSE_CURSOR_IBEAM);
+            } else if (CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds) ||
+                       CheckCollisionPointRec(mousePosition, songNameInput.bounds) ||
+                       CheckCollisionPointRec(mousePosition, bpmValueInput.bounds)) {
+                SetMouseCursor(MOUSE_CURSOR_IBEAM);
+            } else if (CheckCollisionPointRec(mousePosition, saveButton)) {
+                if (canSave) {
+                    SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+                } else {
+                    SetMouseCursor(MOUSE_CURSOR_NOT_ALLOWED);
+                }
             } else {
                 SetMouseCursor(MOUSE_CURSOR_DEFAULT);
             }
@@ -227,17 +335,11 @@ int main(void) {
 
                 if (CheckCollisionPointRec(mousePosition, plusButton)) {
                     isUploadVisible = true;
-                    sceneTextureNeedsUpdate = false; // Stop updating beneath blur
+                    sceneTextureNeedsUpdate = false;
                 }
 
-                if (songSearchInput.editing && !wasEditing && songSearchInput.textLength == 0) {
-                    songSearchInput.text[0] = '\0';
-                    songSearchInput.textLength = 0;
-                }
-                if (bpmValueEdit.editing && !wasEditing && bpmValueEdit.textLength == 0) {
-                    bpmValueEdit.text[0] = '\0';
-                    bpmValueEdit.textLength = 0;
-                }
+                if (songSearchInput.editing && !wasEditing && songSearchInput.textLength == 0) songSearchInput.textLength = 0;
+                if (bpmValueEdit.editing && !wasEditing && bpmValueEdit.textLength == 0) bpmValueEdit.textLength = 0;
             }
 
             if (IsKeyPressed(KEY_ENTER)) {
@@ -302,24 +404,42 @@ int main(void) {
                                    (Vector2){ 0, 0 }, WHITE);
                 EndShaderMode();
 
-                // Draw upload panel above blur
+                // Draw upload panel above blur with hover effects
                 DrawRectangleRec(uploadPanel, toHex("#272930"));         
-                DrawRectangleRounded(pasteArea, 0.1f, 6, toHex("#2C2E36"));  
-                DrawRectangleRounded(songNameInput, 0.5f, 6, toHex("#222329"));  
-                DrawRectangleRounded(bpmValueInput, 0.5f, 6, toHex("#222329")); 
-                DrawRectangleRounded(uploadMidi, 0.5f, 6, toHex("#222329")); 
-                DrawRectangleRounded(cancelButton, 0.5f, 6, toHex("#222329"));
-                DrawRectangleRounded(saveButton, 0.5f, 6, toHex("#222329"));
+                DrawRectangleRounded(pasteAreaInput.bounds, 0.1f, 6, 
+                    CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds) ? toHex("#33353E") : toHex("#2C2E36"));  
+                DrawRectangleRounded(songNameInput.bounds, 0.5f, 6, 
+                    CheckCollisionPointRec(mousePosition, songNameInput.bounds) ? toHex("#2A2C33") : toHex("#222329"));  
+                DrawRectangleRounded(bpmValueInput.bounds, 0.5f, 6, 
+                    CheckCollisionPointRec(mousePosition, bpmValueInput.bounds) ? toHex("#2A2C33") : toHex("#222329")); 
+                DrawRectangleRounded(cancelButton, 0.5f, 6, 
+                    CheckCollisionPointRec(mousePosition, cancelButton) ? toHex("#2A2C33") : toHex("#222329"));
+                DrawRectangleRounded(saveButton, 0.5f, 6, 
+                    canSave ? toHex("#393F5F") : 
+                    (CheckCollisionPointRec(mousePosition, saveButton) ? toHex("#2A2C33") : toHex("#222329")));
+
+                // Draw textbox content
+                drawTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&songNameInput, songNameInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&bpmValueInput, bpmValueInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+
+                // Static elements
                 DrawRectangle(170, 73, 150, 1, toHex("#494D5A"));
                 DrawRectangle(476, 226, 1, 20, toHex("#494D5A"));
                 DrawTextEx(boldGFS_h1, "upload song", (Vector2){ 170, 50 }, 20, 1, toHex("#F0F2FE"));
-                DrawTextEx(boldGFS_h2, "upload midi", (Vector2){ 470, 69 }, 14, 1, toHex("#9CA2B7"));
                 DrawTextEx(italicGFS, "paste music sheet:", (Vector2){ 170, 74 }, 14, 1, toHex("#979EBB"));
-                DrawTextEx(italicGFS, "or", (Vector2){ 438, 74 }, 14, 1, toHex("#979EBB"));
                 DrawTextEx(italicGFS, "song name:", (Vector2){ 170, 212 }, 14, 1, toHex("#979EBB"));
                 DrawTextEx(italicGFS, "bpm:", (Vector2){ 486, 212 }, 14, 1, toHex("#979EBB"));
                 DrawTextEx(boldGFS_h2, "cancel", (Vector2){ 375, 284 }, 14, 1, toHex("#F0F2FE"));
                 DrawTextEx(boldGFS_h2, "save", (Vector2){ 491, 284 }, 14, 1, toHex("#F0F2FE"));
+
+                // Display selected MIDI path or drag-and-drop hint
+                if (selectedMidiPath) {
+                    DrawTextEx(italicGFS, selectedMidiPath, (Vector2){ 170, 250 }, 14, 1, toHex("#D0D0D0"));
+                    DrawTextEx(italicGFS, "file uploaded", (Vector2){ 480, 74 }, 14, 1, toHex("#D0D0D0"));
+                } else {
+                    DrawTextEx(italicGFS, "or drag and drop a midi file", (Vector2){ 394, 74 }, 14, 1, toHex("#D0D0D0"));
+                }
             } else {
                 // Normal render without blur
                 DrawTextureRec(sceneTexture.texture, 
@@ -330,6 +450,7 @@ int main(void) {
     }
 
     // Cleanup
+    if (selectedMidiPath) free(selectedMidiPath); // Free duplicated string
     UnloadRenderTexture(backgroundTexture);
     UnloadRenderTexture(sceneTexture);
     UnloadShader(blurShader);
