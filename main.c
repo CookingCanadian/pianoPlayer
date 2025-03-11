@@ -143,7 +143,10 @@ int main(void) {
         DrawRectangle(222, 85, 210, 1, toHex("#494D5A"));
         DrawRectangle(355, 312, 1, 36, toHex("#494D5A"));
         DrawRectangleRounded((Rectangle){ 14, 55, 150, 24 }, 0.5f, 6, toHex("#222329"));
-        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329"));
+        DrawRectangleRounded((Rectangle){ 170, 55, 24, 24 }, 0.5f, 6, toHex("#222329"));
+        DrawRectangle(181, 61, 2, 12, toHex("#979EBB"));
+        DrawRectangle(176, 66, 12, 2, toHex("#979EBB"));
+        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329"));        
         DrawTextEx(boldGFS_h1, "noctivox", (Vector2){ 14, 8 }, 20, 1, toHex("#FFFFFF"));
         DrawTextEx(boldGFS_h1, "bpm:", (Vector2){ 226, 318 }, 20, 1, toHex("#9CA2B7"));
         DrawTextEx(italicGFS, "a virtual piano player", (Vector2){ 14, 30 }, 14, 1, toHex("#FFFFFF"));
@@ -214,6 +217,7 @@ int main(void) {
         }
 
         BeginDrawing();
+            //Draw background texture
             DrawTextureRec(backgroundTexture.texture, (Rectangle){ 0, 0, screenWidth, -screenHeight }, (Vector2){ 0, 0 }, WHITE);
 
             // Draw textboxes with different colors for active state
