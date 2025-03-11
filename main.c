@@ -1,6 +1,6 @@
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h> // For atoi
+#include <stdlib.h> 
 #include "raylib.h"
 #include "resources/GFSNeohellenic_Italic.h"
 #include "resources/GFSNeohellenic_Bold.h"
@@ -57,14 +57,12 @@ void drawTextboxText(Textbox* textbox, Color textColor) {
     float textWidth = MeasureTextEx(textbox->font, displayText, textbox->fontSize, 1).x;
     float maxTextWidth = textbox->bounds.width - 10; // 5px padding on both sides
 
-    // Adjust scroll if text exceeds width
     if (textWidth > maxTextWidth) {
         textbox->horizontalOffset = textWidth - maxTextWidth;
     } else {
         textbox->horizontalOffset = 0;
     }
 
-    // Draw clipped text
     Rectangle scissorRect = { textbox->bounds.x + 5, textbox->bounds.y + 5, maxTextWidth, textbox->bounds.height - 10 };
     BeginScissorMode(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
     DrawTextEx(textbox->font, displayText, 
@@ -72,7 +70,6 @@ void drawTextboxText(Textbox* textbox, Color textColor) {
                textbox->fontSize, 1, textColor);
     EndScissorMode();
 
-    // Draw cursor
     if (textbox->editing && textbox->cursorBlink < 0.5f) {
         float cursorX = textbox->bounds.x + 5 + textWidth - textbox->horizontalOffset;
         DrawRectangle(cursorX, textbox->bounds.y + 5, 2, textbox->fontSize, textColor);
@@ -81,7 +78,6 @@ void drawTextboxText(Textbox* textbox, Color textColor) {
 
 // Input handling for textboxes
 void handleTextboxInput(Textbox* textbox) {
-    // Handle character input
     int key = GetCharPressed();
     while (key > 0) {
         if (textbox->textLength < 63) {
@@ -91,7 +87,7 @@ void handleTextboxInput(Textbox* textbox) {
                     textbox->text[textbox->textLength] = '\0';
                 }
             } else {
-                if (key >= 32 && key <= 126) { // Regular characters
+                if (key >= 32 && key <= 126) {
                     textbox->text[textbox->textLength++] = (char)key;
                     textbox->text[textbox->textLength] = '\0';
                 }
@@ -100,27 +96,44 @@ void handleTextboxInput(Textbox* textbox) {
         key = GetCharPressed();
     }
 
-    // Handle backspace: instant press and hold behavior
     if (IsKeyPressed(KEY_BACKSPACE) && textbox->textLength > 0) {
         textbox->text[--textbox->textLength] = '\0';
     }
     if (IsKeyDown(KEY_BACKSPACE)) {
         textbox->backspaceTimer += GetFrameTime();
-        if (textbox->backspaceTimer > 0.3f) { // Initial hold delay
+        if (textbox->backspaceTimer > 0.3f) {
             if (textbox->textLength > 0) {
                 textbox->text[--textbox->textLength] = '\0';
-                textbox->backspaceTimer = 0.25f; // Reset to a slightly faster repeat rate
+                textbox->backspaceTimer = 0.25f;
             }
         }
     }
     if (IsKeyReleased(KEY_BACKSPACE)) {
-        textbox->backspaceTimer = 0; // Reset timer on release
+        textbox->backspaceTimer = 0;
     }
 
-    // Blink effect
     textbox->cursorBlink += GetFrameTime();
     if (textbox->cursorBlink > 1.0f) textbox->cursorBlink = 0.0f;
 }
+
+// Gaussian blur fragment shader 
+const char* blurShaderCode = 
+    "#version 330\n"
+    "in vec2 fragTexCoord;\n"
+    "out vec4 fragColor;\n"
+    "uniform sampler2D texture0;\n"
+    "uniform vec2 resolution;\n"
+    "void main() {\n"
+    "    vec2 texelSize = 1.0 / resolution;\n"
+    "    vec4 color = vec4(0.0);\n"
+    "    float weights[3] = float[](0.3, 0.2, 0.2);\n" 
+    "    color += texture(texture0, fragTexCoord) * weights[0];\n"
+    "    color += texture(texture0, fragTexCoord + vec2(texelSize.x, 0.0)) * weights[1];\n"
+    "    color += texture(texture0, fragTexCoord - vec2(texelSize.x, 0.0)) * weights[1];\n"
+    "    color += texture(texture0, fragTexCoord + vec2(0.0, texelSize.y)) * weights[1];\n"
+    "    color += texture(texture0, fragTexCoord - vec2(0.0, texelSize.y)) * weights[1];\n"
+    "    fragColor = color * 0.8f;\n" 
+    "}\n";
 
 int main(void) {
     const int screenWidth = 720;
@@ -142,15 +155,25 @@ int main(void) {
         DrawRectangle(14, 48, 180, 1, toHex("#272C3C"));
         DrawRectangle(222, 85, 210, 1, toHex("#494D5A"));
         DrawRectangle(355, 312, 1, 36, toHex("#494D5A"));
-        DrawRectangleRounded((Rectangle){ 14, 55, 150, 24 }, 0.5f, 6, toHex("#222329")); // Song input
-        DrawRectangleRounded((Rectangle){ 170, 55, 24, 24 }, 0.5f, 6, toHex("#222329")); // Plus button
-        DrawRectangle(181, 61, 2, 12, toHex("#979EBB")); // Plus vertical
-        DrawRectangle(176, 66, 12, 2, toHex("#979EBB")); // Plus horizontal
-        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329")); // BPM input
+        DrawRectangleRounded((Rectangle){ 14, 55, 150, 24 }, 0.5f, 6, toHex("#222329"));
+        DrawRectangleRounded((Rectangle){ 170, 55, 24, 24 }, 0.5f, 6, toHex("#222329"));
+        DrawRectangle(181, 61, 2, 12, toHex("#979EBB"));
+        DrawRectangle(176, 66, 12, 2, toHex("#979EBB"));
+        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329"));
         DrawTextEx(boldGFS_h1, "noctivox", (Vector2){ 14, 8 }, 20, 1, toHex("#FFFFFF"));
         DrawTextEx(boldGFS_h1, "bpm:", (Vector2){ 226, 318 }, 20, 1, toHex("#9CA2B7"));
         DrawTextEx(italicGFS, "a virtual piano player", (Vector2){ 14, 30 }, 14, 1, toHex("#FFFFFF"));
     EndTextureMode();
+
+    // Render texture for full scene
+    RenderTexture2D sceneTexture = LoadRenderTexture(screenWidth, screenHeight);
+    bool sceneTextureNeedsUpdate = true;
+
+    // Load blur shader
+    Shader blurShader = LoadShaderFromMemory(0, blurShaderCode);
+    int resolutionLoc = GetShaderLocation(blurShader, "resolution");
+    float resolution[2] = { (float)screenWidth, (float)screenHeight };
+    SetShaderValue(blurShader, resolutionLoc, resolution, SHADER_UNIFORM_VEC2);
 
     // Textboxes with placeholders
     Textbox songInput = { 
@@ -162,8 +185,11 @@ int main(void) {
         true, italicGFS, 14, 0, 0, "100" 
     };
 
-    // Define selectable areas 
+    // Define selectable areas and toggle elements
     Rectangle plusButton = { 170, 55, 24, 24 };
+    Rectangle uploadPanel = { 160, 45, 400, 270 };
+    Rectangle closeButton = { 540, 45, 20, 20 }; // Top-right corner of uploadPanel
+    bool isUploadVisible = false;
 
     // Bound variables
     char songName[64] = "";
@@ -172,78 +198,123 @@ int main(void) {
     while (!WindowShouldClose()) {
         Vector2 mousePosition = GetMousePosition();
 
-        // Textbox cursor handling
-        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            bool wasEditing = songInput.editing || bpmInput.editing;
-            songInput.editing = CheckCollisionPointRec(mousePosition, songInput.bounds);
-            bpmInput.editing = CheckCollisionPointRec(mousePosition, bpmInput.bounds);
-
-            // Clear placeholder on entering edit mode
-            if (songInput.editing && !wasEditing && songInput.textLength == 0) {
-                songInput.text[0] = '\0';
-                songInput.textLength = 0;
+        // Input handling based on z-index
+        if (isUploadVisible) {
+            // Upload panel layer (above blur)
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                if (CheckCollisionPointRec(mousePosition, closeButton)) {
+                    isUploadVisible = false;
+                    sceneTextureNeedsUpdate = true; // Redraw base layer when closing
+                }
             }
-            if (bpmInput.editing && !wasEditing && bpmInput.textLength == 0) {
-                bpmInput.text[0] = '\0';
-                bpmInput.textLength = 0;
+            // Cursor for upload panel
+            if (CheckCollisionPointRec(mousePosition, closeButton)) {
+                SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+            } else {
+                SetMouseCursor(MOUSE_CURSOR_DEFAULT);
+            }
+        } else {
+            // Base layer (beneath blur)
+            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+                bool wasEditing = songInput.editing || bpmInput.editing;
+                songInput.editing = CheckCollisionPointRec(mousePosition, songInput.bounds);
+                bpmInput.editing = CheckCollisionPointRec(mousePosition, bpmInput.bounds);
+
+                if (CheckCollisionPointRec(mousePosition, plusButton)) {
+                    isUploadVisible = true;
+                    sceneTextureNeedsUpdate = false; // Stop updating beneath blur
+                }
+
+                if (songInput.editing && !wasEditing && songInput.textLength == 0) {
+                    songInput.text[0] = '\0';
+                    songInput.textLength = 0;
+                }
+                if (bpmInput.editing && !wasEditing && bpmInput.textLength == 0) {
+                    bpmInput.text[0] = '\0';
+                    bpmInput.textLength = 0;
+                }
+            }
+
+            if (IsKeyPressed(KEY_ENTER)) {
+                if (songInput.editing && songInput.textLength == 0) {
+                    strcpy(songInput.text, songInput.placeholder);
+                    songInput.textLength = strlen(songInput.placeholder);
+                }
+                if (bpmInput.editing && bpmInput.textLength == 0) {
+                    strcpy(bpmInput.text, bpmInput.placeholder);
+                    bpmInput.textLength = strlen(bpmInput.placeholder);
+                }
+                songInput.editing = false;
+                bpmInput.editing = false;
+            }
+
+            if (songInput.editing) handleTextboxInput(&songInput);
+            if (bpmInput.editing) handleTextboxInput(&bpmInput);
+
+            // Cursor for base layer
+            if (songInput.editing || bpmInput.editing) {
+                SetMouseCursor(MOUSE_CURSOR_IBEAM);
+            } else if (CheckCollisionPointRec(mousePosition, songInput.bounds) ||
+                       CheckCollisionPointRec(mousePosition, bpmInput.bounds) ||
+                       CheckCollisionPointRec(mousePosition, plusButton)) {
+                SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+            } else {
+                SetMouseCursor(MOUSE_CURSOR_DEFAULT);
             }
         }
-
-        if (IsKeyPressed(KEY_ENTER)) {
-            // Restore placeholder if empty on exit
-            if (songInput.editing && songInput.textLength == 0) {
-                strcpy(songInput.text, songInput.placeholder);
-                songInput.textLength = strlen(songInput.placeholder);
-            }
-            if (bpmInput.editing && bpmInput.textLength == 0) {
-                strcpy(bpmInput.text, bpmInput.placeholder);
-                bpmInput.textLength = strlen(bpmInput.placeholder);
-            }
-            songInput.editing = false;
-            bpmInput.editing = false;
-        }
-
-        // Handle input
-        if (songInput.editing) handleTextboxInput(&songInput);
-        if (bpmInput.editing) handleTextboxInput(&bpmInput);
 
         // Update bound variables
         if (songInput.textLength > 0 && strcmp(songInput.text, songInput.placeholder) != 0) {
             strcpy(songName, songInput.text);
         } else {
-            songName[0] = '\0'; // Clear if placeholder or empty
+            songName[0] = '\0';
         }
         if (bpmInput.textLength > 0 && strcmp(bpmInput.text, bpmInput.placeholder) != 0) {
             bpm = atoi(bpmInput.text);
         } else {
-            bpm = atoi(bpmInput.placeholder); // Default to placeholder value
+            bpm = atoi(bpmInput.placeholder);
         }
 
-        // Cursor handling for selectable areas
-        if (songInput.editing || bpmInput.editing) {
-            SetMouseCursor(MOUSE_CURSOR_IBEAM); // Text editing
-        } else if (CheckCollisionPointRec(mousePosition, songInput.bounds) ||
-                   CheckCollisionPointRec(mousePosition, bpmInput.bounds) ||
-                   CheckCollisionPointRec(mousePosition, plusButton)) {
-            SetMouseCursor(MOUSE_CURSOR_POINTING_HAND); // Hover over selectable items
-        } else {
-            SetMouseCursor(MOUSE_CURSOR_DEFAULT); // Default elsewhere
+        // Render scene to texture only when needed
+        if (sceneTextureNeedsUpdate && !isUploadVisible) {
+            BeginTextureMode(sceneTexture);
+                DrawTextureRec(backgroundTexture.texture, 
+                               (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
+                               (Vector2){ 0, 0 }, WHITE);
+                drawTextboxText(&songInput, songInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&bpmInput, bpmInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+            EndTextureMode();
         }
 
         BeginDrawing();
-            // Draw background texture
-            DrawTextureRec(backgroundTexture.texture, 
-                           (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
-                           (Vector2){ 0, 0 }, WHITE);
+            ClearBackground(BLACK);
 
-            // Draw textboxes with different colors for active state
-            drawTextboxText(&songInput, songInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
-            drawTextboxText(&bpmInput, bpmInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+            if (isUploadVisible) {
+                // Draw blurred scene (cached)
+                BeginShaderMode(blurShader);
+                    DrawTextureRec(sceneTexture.texture, 
+                                   (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
+                                   (Vector2){ 0, 0 }, WHITE);
+                EndShaderMode();
+
+                // Draw upload panel above blur
+                DrawRectangleRec(uploadPanel, toHex("#272930"));
+                // Draw close button
+                DrawRectangleRec(closeButton, toHex("#494D5A"));
+                DrawTextEx(boldGFS_h2, "X", (Vector2){ closeButton.x + 5, closeButton.y + 3 }, 14, 1, toHex("#FFFFFF"));
+            } else {
+                // Normal render without blur
+                DrawTextureRec(sceneTexture.texture, 
+                               (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
+                               (Vector2){ 0, 0 }, WHITE);
+            }
         EndDrawing();
     }
 
     // Cleanup
     UnloadRenderTexture(backgroundTexture);
+    UnloadRenderTexture(sceneTexture);
+    UnloadShader(blurShader);
     unloadFonts();
     CloseWindow();
     return 0;
