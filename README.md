@@ -1,4 +1,4 @@
-noctivox - a virtual piano player
+# noctivox - a virtual piano player
 
 This project incorporates the following third-party software and fonts, each under their respective licenses:
 
