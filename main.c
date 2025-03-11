@@ -142,11 +142,11 @@ int main(void) {
         DrawRectangle(14, 48, 180, 1, toHex("#272C3C"));
         DrawRectangle(222, 85, 210, 1, toHex("#494D5A"));
         DrawRectangle(355, 312, 1, 36, toHex("#494D5A"));
-        DrawRectangleRounded((Rectangle){ 14, 55, 150, 24 }, 0.5f, 6, toHex("#222329"));
-        DrawRectangleRounded((Rectangle){ 170, 55, 24, 24 }, 0.5f, 6, toHex("#222329"));
-        DrawRectangle(181, 61, 2, 12, toHex("#979EBB"));
-        DrawRectangle(176, 66, 12, 2, toHex("#979EBB"));
-        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329"));        
+        DrawRectangleRounded((Rectangle){ 14, 55, 150, 24 }, 0.5f, 6, toHex("#222329")); // Song input
+        DrawRectangleRounded((Rectangle){ 170, 55, 24, 24 }, 0.5f, 6, toHex("#222329")); // Plus button
+        DrawRectangle(181, 61, 2, 12, toHex("#979EBB")); // Plus vertical
+        DrawRectangle(176, 66, 12, 2, toHex("#979EBB")); // Plus horizontal
+        DrawRectangleRounded((Rectangle){ 274, 316, 65, 30 }, 0.5f, 6, toHex("#222329")); // BPM input
         DrawTextEx(boldGFS_h1, "noctivox", (Vector2){ 14, 8 }, 20, 1, toHex("#FFFFFF"));
         DrawTextEx(boldGFS_h1, "bpm:", (Vector2){ 226, 318 }, 20, 1, toHex("#9CA2B7"));
         DrawTextEx(italicGFS, "a virtual piano player", (Vector2){ 14, 30 }, 14, 1, toHex("#FFFFFF"));
@@ -161,6 +161,9 @@ int main(void) {
         { 274, 319, 60, 30 }, "", 0, false, 0.0f, 
         true, italicGFS, 14, 0, 0, "100" 
     };
+
+    // Define selectable areas 
+    Rectangle plusButton = { 170, 55, 24, 24 };
 
     // Bound variables
     char songName[64] = "";
@@ -216,9 +219,22 @@ int main(void) {
             bpm = atoi(bpmInput.placeholder); // Default to placeholder value
         }
 
+        // Cursor handling for selectable areas
+        if (songInput.editing || bpmInput.editing) {
+            SetMouseCursor(MOUSE_CURSOR_IBEAM); // Text editing
+        } else if (CheckCollisionPointRec(mousePosition, songInput.bounds) ||
+                   CheckCollisionPointRec(mousePosition, bpmInput.bounds) ||
+                   CheckCollisionPointRec(mousePosition, plusButton)) {
+            SetMouseCursor(MOUSE_CURSOR_POINTING_HAND); // Hover over selectable items
+        } else {
+            SetMouseCursor(MOUSE_CURSOR_DEFAULT); // Default elsewhere
+        }
+
         BeginDrawing();
-            //Draw background texture
-            DrawTextureRec(backgroundTexture.texture, (Rectangle){ 0, 0, screenWidth, -screenHeight }, (Vector2){ 0, 0 }, WHITE);
+            // Draw background texture
+            DrawTextureRec(backgroundTexture.texture, 
+                           (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
+                           (Vector2){ 0, 0 }, WHITE);
 
             // Draw textboxes with different colors for active state
             drawTextboxText(&songInput, songInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
