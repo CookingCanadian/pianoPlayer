@@ -36,10 +36,10 @@ void unloadFonts(void) {
     UnloadFont(boldItalicGFS);
 }
 
-// Textbox struct for editable input fields
+// Textbox struct with selection support
 typedef struct {
     Rectangle bounds;           // Position and size
-    char text[256];             // Increased buffer for larger text
+    char text[256];             // Buffer for larger text
     int textLength;             // Current length of text
     bool editing;               // Is this textbox active?
     float cursorBlink;          // Blink timer for cursor
@@ -50,16 +50,19 @@ typedef struct {
     float verticalOffset;       // Vertical offset for scrolling
     float backspaceTimer;       // Time for multi-character removal
     const char* placeholder;    // Placeholder text
+    int cursorPos;              // Cursor position in text
+    int selectionStart;         // Start of text selection (-1 if none)
+    int selectionEnd;           // End of text selection
 } Textbox;
 
-// Function to render textbox text with scrolling
-void drawTextboxText(Textbox* textbox, Color textColor) {
+// Function to render textbox text with scrolling and selection
+void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea) {
     const char* displayText = (textbox->textLength == 0 && !textbox->editing) ? textbox->placeholder : textbox->text;
     Vector2 textSize = MeasureTextEx(textbox->font, displayText, textbox->fontSize, 1);
-    float maxTextWidth = textbox->bounds.width - 10; // 5px padding on both sides
-    float maxTextHeight = textbox->bounds.height - 10; // 5px padding top and bottom
+    float maxTextWidth = isPasteArea ? textbox->bounds.width - 15 : textbox->bounds.width - 10; // Scrollbar space for paste area
+    float maxTextHeight = textbox->bounds.height - 10;
 
-    // Horizontal offset (unchanged)
+    // Horizontal offset
     if (textSize.x > maxTextWidth) {
         textbox->horizontalOffset = textSize.x - maxTextWidth;
     } else {
@@ -69,42 +72,144 @@ void drawTextboxText(Textbox* textbox, Color textColor) {
     // Scissor mode for clipping
     Rectangle scissorRect = { textbox->bounds.x + 5, textbox->bounds.y + 5, maxTextWidth, maxTextHeight };
     BeginScissorMode(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
-    
-    // Draw text with vertical offset
-    DrawTextEx(textbox->font, displayText, 
-               (Vector2){ textbox->bounds.x + 5 - textbox->horizontalOffset, textbox->bounds.y + 5 - textbox->verticalOffset }, 
-               textbox->fontSize, 1, textColor);
 
-    // Draw cursor if editing
-    if (textbox->editing && textbox->cursorBlink < 0.5f) {
-        float cursorX = textbox->bounds.x + 5 + textSize.x - textbox->horizontalOffset;
-        float cursorY = textbox->bounds.y + 5 - textbox->verticalOffset;
-        DrawRectangle(cursorX, cursorY, 2, textbox->fontSize, textColor);
+    // Draw text with vertical offset and line breaks (for paste area)
+    float yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
+    char* textCopy = strdup(displayText);
+    char* line = isPasteArea ? strtok(textCopy, "\n") : textCopy;
+    int charIndex = 0;
+    while (line != NULL) {
+        DrawTextEx(textbox->font, line, 
+                   (Vector2){ textbox->bounds.x + 5 - textbox->horizontalOffset, yPos }, 
+                   textbox->fontSize, 1, textColor);
+        if (isPasteArea) {
+            yPos += textbox->fontSize + 2; // Line spacing
+            line = strtok(NULL, "\n");
+        } else {
+            break;
+        }
     }
+
+    // Draw selection highlight
+    if (textbox->selectionStart != -1 && textbox->selectionEnd != -1 && textbox->selectionStart != textbox->selectionEnd) {
+        int start = textbox->selectionStart < textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
+        int end = textbox->selectionStart > textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
+        yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
+        charIndex = 0;
+        line = isPasteArea ? strtok(strdup(displayText), "\n") : displayText;
+        while (line != NULL) {
+            int lineLen = strlen(line);
+            if (charIndex + lineLen >= start && charIndex <= end) {
+                float startX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (start - charIndex) / (float)lineLen - textbox->horizontalOffset;
+                float endX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (end > charIndex + lineLen ? 1 : (end - charIndex) / (float)lineLen) - textbox->horizontalOffset;
+                DrawRectangle(startX, yPos, endX - startX, textbox->fontSize, Fade(toHex("#FFFFFF"), 0.3f));
+            }
+            charIndex += lineLen + (isPasteArea ? 1 : 0);
+            yPos += textbox->fontSize + (isPasteArea ? 2 : 0);
+            if (!isPasteArea) break;
+            line = strtok(NULL, "\n");
+        }
+    }
+
+    // Draw cursor
+    if (textbox->editing && textbox->cursorBlink < 0.5f) {
+        yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
+        charIndex = 0;
+        line = isPasteArea ? strtok(strdup(displayText), "\n") : displayText;
+        while (line != NULL) {
+            int lineLen = strlen(line);
+            if (charIndex + lineLen >= textbox->cursorPos) {
+                float cursorX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (textbox->cursorPos - charIndex) / (float)lineLen - textbox->horizontalOffset;
+                DrawRectangle(cursorX, yPos, 2, textbox->fontSize, textColor);
+                break;
+            }
+            charIndex += lineLen + (isPasteArea ? 1 : 0);
+            yPos += textbox->fontSize + (isPasteArea ? 2 : 0);
+            if (!isPasteArea) break;
+            line = strtok(NULL, "\n");
+        }
+    }
+    free(textCopy);
     EndScissorMode();
+
+    // Draw scrollbar (only for paste area)
+    if (isPasteArea) {
+        float totalHeight = yPos - (textbox->bounds.y + 5 - textbox->verticalOffset);
+        if (totalHeight > maxTextHeight) {
+            float scrollBarHeight = maxTextHeight * maxTextHeight / totalHeight;
+            float scrollBarY = textbox->bounds.y + 5 + (textbox->verticalOffset * (maxTextHeight - scrollBarHeight) / (totalHeight - maxTextHeight));
+            DrawRectangle(textbox->bounds.x + textbox->bounds.width - 10, scrollBarY, 5, scrollBarHeight, toHex("#494D5A"));
+        }
+    }
 }
 
-// Input handling for textboxes with paste support and scrolling
-void handleTextboxInput(Textbox* textbox) {
+// Input handling with selection and scrolling
+void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
+    Vector2 mousePos = GetMousePosition();
+    bool mouseOver = CheckCollisionPointRec(mousePos, textbox->bounds);
+
+    // Handle clicking to set cursor or start selection
+    if (mouseOver && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        textbox->selectionStart = -1;
+        textbox->selectionEnd = -1;
+        float xOffset = mousePos.x - (textbox->bounds.x + 5) + textbox->horizontalOffset;
+        float yOffset = mousePos.y - (textbox->bounds.y + 5) + (isPasteArea ? textbox->verticalOffset : 0);
+        int charIndex = 0;
+        char* line = isPasteArea ? strtok(strdup(textbox->text), "\n") : textbox->text;
+        int lineNum = isPasteArea ? (int)(yOffset / (textbox->fontSize + 2)) : 0;
+        for (int i = 0; i < lineNum && line && isPasteArea; i++) {
+            charIndex += strlen(line) + 1;
+            line = strtok(NULL, "\n");
+        }
+        if (line) {
+            float lineWidth = MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x;
+            int pos = (int)((xOffset / lineWidth) * strlen(line));
+            textbox->cursorPos = charIndex + (pos < strlen(line) ? pos : strlen(line));
+        } else {
+            textbox->cursorPos = textbox->textLength;
+        }
+    }
+
+    // Handle dragging for selection
+    if (mouseOver && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        float xOffset = mousePos.x - (textbox->bounds.x + 5) + textbox->horizontalOffset;
+        float yOffset = mousePos.y - (textbox->bounds.y + 5) + (isPasteArea ? textbox->verticalOffset : 0);
+        int lineNum = isPasteArea ? (int)(yOffset / (textbox->fontSize + 2)) : 0;
+        int charIndex = 0;
+        char* line = isPasteArea ? strtok(strdup(textbox->text), "\n") : textbox->text;
+        for (int i = 0; i < lineNum && line && isPasteArea; i++) {
+            charIndex += strlen(line) + 1;
+            line = strtok(NULL, "\n");
+        }
+        if (line) {
+            float lineWidth = MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x;
+            int pos = (int)((xOffset / lineWidth) * strlen(line));
+            textbox->selectionEnd = charIndex + (pos < strlen(line) ? pos : strlen(line));
+            if (textbox->selectionStart == -1) textbox->selectionStart = textbox->cursorPos;
+        }
+    }
+
     int key = GetCharPressed();
     while (key > 0) {
-        if (textbox->textLength < 255) { // Adjusted for larger buffer
+        if (textbox->textLength < 255) {
             if (textbox->numericOnly) {
                 if (key >= '0' && key <= '9') { 
                     textbox->text[textbox->textLength++] = (char)key;
                     textbox->text[textbox->textLength] = '\0';
+                    textbox->cursorPos++;
                 }
             } else {
-                if (key >= 32 && key <= 126) {
+                if ((key >= 32 && key <= 126) || (isPasteArea && key == '\n')) {
                     textbox->text[textbox->textLength++] = (char)key;
                     textbox->text[textbox->textLength] = '\0';
+                    textbox->cursorPos++;
                 }
             }
         }
         key = GetCharPressed();
     }
 
-    // Paste support (Ctrl+V or Cmd+V)
+    // Paste support (Ctrl+V)
     if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_V)) {
         const char* clipboard = GetClipboardText();
         if (clipboard) {
@@ -115,41 +220,68 @@ void handleTextboxInput(Textbox* textbox) {
                 for (int i = 0; i < charsToCopy; i++) {
                     if (clipboard[i] >= '0' && clipboard[i] <= '9') {
                         textbox->text[textbox->textLength++] = clipboard[i];
+                        textbox->cursorPos++;
                     }
                 }
             } else {
                 strncpy(textbox->text + textbox->textLength, clipboard, charsToCopy);
                 textbox->textLength += charsToCopy;
+                textbox->cursorPos += charsToCopy;
             }
             textbox->text[textbox->textLength] = '\0';
         }
     }
 
+    // Ctrl+A to select all
+    if ((IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL)) && IsKeyPressed(KEY_A)) {
+        textbox->selectionStart = 0;
+        textbox->selectionEnd = textbox->textLength;
+        textbox->cursorPos = textbox->textLength;
+    }
+
+    // Handle backspace with selection
     if (IsKeyPressed(KEY_BACKSPACE) && textbox->textLength > 0) {
-        textbox->text[--textbox->textLength] = '\0';
+        if (textbox->selectionStart != -1 && textbox->selectionEnd != -1 && textbox->selectionStart != textbox->selectionEnd) {
+            int start = textbox->selectionStart < textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
+            int end = textbox->selectionStart > textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
+            int lenToRemove = end - start;
+            memmove(textbox->text + start, textbox->text + end, textbox->textLength - end + 1);
+            textbox->textLength -= lenToRemove;
+            textbox->cursorPos = start;
+            textbox->selectionStart = textbox->selectionEnd = -1;
+        } else if (textbox->cursorPos > 0) {
+            memmove(textbox->text + textbox->cursorPos - 1, textbox->text + textbox->cursorPos, textbox->textLength - textbox->cursorPos + 1);
+            textbox->textLength--;
+            textbox->cursorPos--;
+        }
     }
     if (IsKeyDown(KEY_BACKSPACE)) {
         textbox->backspaceTimer += GetFrameTime();
-        if (textbox->backspaceTimer > 0.3f) {
-            if (textbox->textLength > 0) {
-                textbox->text[--textbox->textLength] = '\0';
-                textbox->backspaceTimer = 0.25f;
-            }
+        if (textbox->backspaceTimer > 0.3f && textbox->cursorPos > 0) {
+            memmove(textbox->text + textbox->cursorPos - 1, textbox->text + textbox->cursorPos, textbox->textLength - textbox->cursorPos + 1);
+            textbox->textLength--;
+            textbox->cursorPos--;
+            textbox->backspaceTimer = 0.25f;
         }
     }
     if (IsKeyReleased(KEY_BACKSPACE)) {
         textbox->backspaceTimer = 0;
     }
 
-    // Scrolling with mouse wheel
-    if (CheckCollisionPointRec(GetMousePosition(), textbox->bounds)) {
+    // Scrolling with mouse wheel (only for paste area)
+    if (isPasteArea && mouseOver) {
         float wheel = GetMouseWheelMove();
-        float textHeight = MeasureTextEx(textbox->font, textbox->text, textbox->fontSize, 1).y;
+        float totalHeight = 0;
+        char* line = strtok(strdup(textbox->text), "\n");
+        while (line) {
+            totalHeight += textbox->fontSize + 2;
+            line = strtok(NULL, "\n");
+        }
         float maxHeight = textbox->bounds.height - 10;
-        if (textHeight > maxHeight) {
-            textbox->verticalOffset -= wheel * 20.0f; // Scroll speed
+        if (totalHeight > maxHeight) {
+            textbox->verticalOffset -= wheel * 20.0f;
             if (textbox->verticalOffset < 0) textbox->verticalOffset = 0;
-            if (textbox->verticalOffset > textHeight - maxHeight) textbox->verticalOffset = textHeight - maxHeight;
+            if (textbox->verticalOffset > totalHeight - maxHeight) textbox->verticalOffset = totalHeight - maxHeight;
         } else {
             textbox->verticalOffset = 0;
         }
@@ -221,25 +353,25 @@ int main(void) {
     // Textboxes with placeholders (base layer)
     Textbox songSearchInput = { 
         { 14, 55, 150, 24 }, "", 0, false, 0.0f, 
-        false, italicGFS, 14, 0, 0, 0, "search for songs" 
+        false, italicGFS, 14, 0, 0, 0, "search for songs", 0, -1, -1 
     };
     Textbox bpmValueEdit = { 
         { 274, 319, 60, 30 }, "", 0, false, 0.0f, 
-        true, italicGFS, 14, 0, 0, 0, "100" 
+        true, italicGFS, 14, 0, 0, 0, "100", 0, -1, -1 
     };
 
-    // Textboxes for upload panel (no placeholders, larger paste area buffer)
+    // Textboxes for upload panel
     Textbox pasteAreaInput = { 
         { 170, 90, 380, 120 }, "", 0, false, 0.0f, 
-        false, italicGFS, 14, 0, 0, 0, "" 
+        false, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
     Textbox songNameInput = { 
         { 170, 226, 297, 20 }, "", 0, false, 0.0f, 
-        false, italicGFS, 14, 0, 0, 0, "" 
+        false, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
     Textbox bpmValueInput = { 
         { 486, 226, 64, 20 }, "", 0, false, 0.0f, 
-        true, italicGFS, 14, 0, 0, 0, "" 
+        true, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
 
     // Define selectable areas and toggle elements
@@ -248,7 +380,7 @@ int main(void) {
     Rectangle cancelButton = { 343, 276, 96, 30 }; 
     Rectangle saveButton = { 454, 276, 96, 30 };
     bool isUploadVisible = false;
-    char* selectedMidiPath = NULL; // Store MIDI file path
+    char* selectedMidiPath = NULL;
 
     // Bound variables
     char songName[64] = "";
@@ -257,14 +389,14 @@ int main(void) {
     while (!WindowShouldClose()) {
         Vector2 mousePosition = GetMousePosition();
 
-        // Check for dropped files (works globally, but we'll process in upload panel)
+        // Check for dropped files
         if (IsFileDropped() && isUploadVisible) {
             FilePathList droppedFiles = LoadDroppedFiles();
             for (int i = 0; i < droppedFiles.count; i++) {
                 if (IsFileExtension(droppedFiles.paths[i], ".mid")) {
-                    if (selectedMidiPath) free(selectedMidiPath); // Free previous path
-                    selectedMidiPath = strdup(droppedFiles.paths[i]); // Copy the path
-                    break; // Take the first .mid file
+                    if (selectedMidiPath) free(selectedMidiPath);
+                    selectedMidiPath = strdup(droppedFiles.paths[i]);
+                    break;
                 }
             }
             UnloadDroppedFiles(droppedFiles);
@@ -277,7 +409,6 @@ int main(void) {
 
         // Input handling based on z-index
         if (isUploadVisible) {
-            // Upload panel layer (above blur)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 bool wasEditing = pasteAreaInput.editing || songNameInput.editing || bpmValueInput.editing;
                 pasteAreaInput.editing = CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds);
@@ -289,28 +420,25 @@ int main(void) {
                     sceneTextureNeedsUpdate = true;
                 }
                 if (CheckCollisionPointRec(mousePosition, saveButton) && canSave) {
-                    // Save logic here (e.g., process pasteAreaInput.text, songNameInput.text, bpmValueInput.text, selectedMidiPath)
                     isUploadVisible = false;
                     sceneTextureNeedsUpdate = true;
                 }
 
-                if (pasteAreaInput.editing && !wasEditing && pasteAreaInput.textLength == 0) pasteAreaInput.textLength = 0;
-                if (songNameInput.editing && !wasEditing && songNameInput.textLength == 0) songNameInput.textLength = 0;
-                if (bpmValueInput.editing && !wasEditing && bpmValueInput.textLength == 0) bpmValueInput.textLength = 0;
+                if (pasteAreaInput.editing && !wasEditing) pasteAreaInput.cursorPos = pasteAreaInput.textLength;
+                if (songNameInput.editing && !wasEditing) songNameInput.cursorPos = songNameInput.textLength;
+                if (bpmValueInput.editing && !wasEditing) bpmValueInput.cursorPos = bpmValueInput.textLength;
             }
 
-            // Exit editing on Enter
             if (IsKeyPressed(KEY_ENTER)) {
                 pasteAreaInput.editing = false;
                 songNameInput.editing = false;
                 bpmValueInput.editing = false;
             }
 
-            if (pasteAreaInput.editing) handleTextboxInput(&pasteAreaInput);
-            if (songNameInput.editing) handleTextboxInput(&songNameInput);
-            if (bpmValueInput.editing) handleTextboxInput(&bpmValueInput);
+            if (pasteAreaInput.editing) handleTextboxInput(&pasteAreaInput, true);
+            if (songNameInput.editing) handleTextboxInput(&songNameInput, false);
+            if (bpmValueInput.editing) handleTextboxInput(&bpmValueInput, false);
 
-            // Cursor for upload panel
             if (pasteAreaInput.editing || songNameInput.editing || bpmValueInput.editing) {
                 SetMouseCursor(MOUSE_CURSOR_IBEAM);
             } else if (CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds) ||
@@ -327,7 +455,6 @@ int main(void) {
                 SetMouseCursor(MOUSE_CURSOR_DEFAULT);
             }
         } else {
-            // Base layer (beneath blur)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 bool wasEditing = songSearchInput.editing || bpmValueEdit.editing;
                 songSearchInput.editing = CheckCollisionPointRec(mousePosition, songSearchInput.bounds);
@@ -338,27 +465,28 @@ int main(void) {
                     sceneTextureNeedsUpdate = false;
                 }
 
-                if (songSearchInput.editing && !wasEditing && songSearchInput.textLength == 0) songSearchInput.textLength = 0;
-                if (bpmValueEdit.editing && !wasEditing && bpmValueEdit.textLength == 0) bpmValueEdit.textLength = 0;
+                if (songSearchInput.editing && !wasEditing) songSearchInput.cursorPos = songSearchInput.textLength;
+                if (bpmValueEdit.editing && !wasEditing) bpmValueEdit.cursorPos = bpmValueEdit.textLength;
             }
 
             if (IsKeyPressed(KEY_ENTER)) {
                 if (songSearchInput.editing && songSearchInput.textLength == 0) {
                     strcpy(songSearchInput.text, songSearchInput.placeholder);
                     songSearchInput.textLength = strlen(songSearchInput.placeholder);
+                    songSearchInput.cursorPos = songSearchInput.textLength;
                 }
                 if (bpmValueEdit.editing && bpmValueEdit.textLength == 0) {
                     strcpy(bpmValueEdit.text, bpmValueEdit.placeholder);
                     bpmValueEdit.textLength = strlen(bpmValueEdit.placeholder);
+                    bpmValueEdit.cursorPos = bpmValueEdit.textLength;
                 }
                 songSearchInput.editing = false;
                 bpmValueEdit.editing = false;
             }
 
-            if (songSearchInput.editing) handleTextboxInput(&songSearchInput);
-            if (bpmValueEdit.editing) handleTextboxInput(&bpmValueEdit);
+            if (songSearchInput.editing) handleTextboxInput(&songSearchInput, false);
+            if (bpmValueEdit.editing) handleTextboxInput(&bpmValueEdit, false);
 
-            // Cursor for base layer
             if (songSearchInput.editing || bpmValueEdit.editing) {
                 SetMouseCursor(MOUSE_CURSOR_IBEAM);
             } else if (CheckCollisionPointRec(mousePosition, songSearchInput.bounds) ||
@@ -388,8 +516,8 @@ int main(void) {
                 DrawTextureRec(backgroundTexture.texture, 
                                (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
                                (Vector2){ 0, 0 }, WHITE);
-                drawTextboxText(&songSearchInput, songSearchInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
-                drawTextboxText(&bpmValueEdit, bpmValueEdit.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&songSearchInput, songSearchInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
+                drawTextboxText(&bpmValueEdit, bpmValueEdit.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
             EndTextureMode();
         }
 
@@ -397,14 +525,12 @@ int main(void) {
             ClearBackground(BLACK);
 
             if (isUploadVisible) {
-                // Draw blurred scene (cached)
                 BeginShaderMode(blurShader);
                     DrawTextureRec(sceneTexture.texture, 
                                    (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
                                    (Vector2){ 0, 0 }, WHITE);
                 EndShaderMode();
 
-                // Draw upload panel above blur with hover effects
                 DrawRectangleRec(uploadPanel, toHex("#272930"));         
                 DrawRectangleRounded(pasteAreaInput.bounds, 0.1f, 6, 
                     CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds) ? toHex("#33353E") : toHex("#2C2E36"));  
@@ -418,12 +544,10 @@ int main(void) {
                     canSave ? toHex("#393F5F") : 
                     (CheckCollisionPointRec(mousePosition, saveButton) ? toHex("#2A2C33") : toHex("#222329")));
 
-                // Draw textbox content
-                drawTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
-                drawTextboxText(&songNameInput, songNameInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
-                drawTextboxText(&bpmValueInput, bpmValueInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), true);
+                drawTextboxText(&songNameInput, songNameInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
+                drawTextboxText(&bpmValueInput, bpmValueInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
 
-                // Static elements
                 DrawRectangle(170, 73, 150, 1, toHex("#494D5A"));
                 DrawRectangle(476, 226, 1, 20, toHex("#494D5A"));
                 DrawTextEx(boldGFS_h1, "upload song", (Vector2){ 170, 50 }, 20, 1, toHex("#F0F2FE"));
@@ -433,15 +557,13 @@ int main(void) {
                 DrawTextEx(boldGFS_h2, "cancel", (Vector2){ 375, 284 }, 14, 1, toHex("#F0F2FE"));
                 DrawTextEx(boldGFS_h2, "save", (Vector2){ 491, 284 }, 14, 1, toHex("#F0F2FE"));
 
-                // Display selected MIDI path or drag-and-drop hint
                 if (selectedMidiPath) {
                     DrawTextEx(italicGFS, selectedMidiPath, (Vector2){ 170, 250 }, 14, 1, toHex("#D0D0D0"));
                     DrawTextEx(italicGFS, "file uploaded", (Vector2){ 480, 74 }, 14, 1, toHex("#D0D0D0"));
                 } else {
-                    DrawTextEx(italicGFS, "or drag and drop a midi file", (Vector2){ 394, 74 }, 14, 1, toHex("#D0D0D0"));
+                    DrawTextEx(italicGFS, "or drag and drop a .midi file", (Vector2){ 394, 74 }, 14, 1, toHex("#D0D0D0"));
                 }
             } else {
-                // Normal render without blur
                 DrawTextureRec(sceneTexture.texture, 
                                (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
                                (Vector2){ 0, 0 }, WHITE);
@@ -449,8 +571,7 @@ int main(void) {
         EndDrawing();
     }
 
-    // Cleanup
-    if (selectedMidiPath) free(selectedMidiPath); // Free duplicated string
+    if (selectedMidiPath) free(selectedMidiPath);
     UnloadRenderTexture(backgroundTexture);
     UnloadRenderTexture(sceneTexture);
     UnloadShader(blurShader);
