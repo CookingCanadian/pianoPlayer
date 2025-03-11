@@ -312,7 +312,14 @@ int main(void) {
                 DrawRectangleRounded(saveButton, 0.5f, 6, toHex("#222329"));
                 DrawRectangle(170, 73, 150, 1, toHex("#494D5A"));
                 DrawRectangle(476, 226, 1, 20, toHex("#494D5A"));
-                DrawTextEx(boldGFS_h2, "upload song", (Vector2){ 170, 52 }, 14, 1, toHex("#F0F2FE"));
+                DrawTextEx(boldGFS_h1, "upload song", (Vector2){ 170, 50 }, 20, 1, toHex("#F0F2FE"));
+                DrawTextEx(boldGFS_h2, "upload midi", (Vector2){ 470, 69 }, 14, 1, toHex("#9CA2B7"));
+                DrawTextEx(italicGFS, "paste music sheet:", (Vector2){ 170, 74 }, 14, 1, toHex("#979EBB"));
+                DrawTextEx(italicGFS, "or", (Vector2){ 438, 74 }, 14, 1, toHex("#979EBB"));
+                DrawTextEx(italicGFS, "song name:", (Vector2){ 170, 212 }, 14, 1, toHex("#979EBB"));
+                DrawTextEx(italicGFS, "bpm:", (Vector2){ 486, 212 }, 14, 1, toHex("#979EBB"));
+                DrawTextEx(boldGFS_h2, "cancel", (Vector2){ 375, 284 }, 14, 1, toHex("#F0F2FE"));
+                DrawTextEx(boldGFS_h2, "save", (Vector2){ 491, 284 }, 14, 1, toHex("#F0F2FE"));
             } else {
                 // Normal render without blur
                 DrawTextureRec(sceneTexture.texture, 
