@@ -176,11 +176,11 @@ int main(void) {
     SetShaderValue(blurShader, resolutionLoc, resolution, SHADER_UNIFORM_VEC2);
 
     // Textboxes with placeholders
-    Textbox songInput = { 
+    Textbox songSearchInput = { 
         { 14, 55, 150, 24 }, "", 0, false, 0.0f, 
         false, italicGFS, 14, 0, 0, "search for songs" 
     };
-    Textbox bpmInput = { 
+    Textbox bpmValueEdit = { 
         { 274, 319, 60, 30 }, "", 0, false, 0.0f, 
         true, italicGFS, 14, 0, 0, "100" 
     };
@@ -188,7 +188,12 @@ int main(void) {
     // Define selectable areas and toggle elements
     Rectangle plusButton = { 170, 55, 24, 24 };
     Rectangle uploadPanel = { 160, 45, 400, 270 };
-    Rectangle closeButton = { 540, 45, 20, 20 }; // Top-right corner of uploadPanel
+    Rectangle cancelButton = { 343, 276, 96, 30 }; 
+    Rectangle saveButton = { 454, 276, 96, 30 };
+    Rectangle uploadMidi = { 454, 66, 96, 20 };
+    Rectangle pasteArea = { 170, 90, 380, 120 };
+    Rectangle songNameInput = { 170, 226, 297, 20 };
+    Rectangle bpmValueInput = { 486, 226, 64, 20 };
     bool isUploadVisible = false;
 
     // Bound variables
@@ -202,13 +207,13 @@ int main(void) {
         if (isUploadVisible) {
             // Upload panel layer (above blur)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                if (CheckCollisionPointRec(mousePosition, closeButton)) {
+                if (CheckCollisionPointRec(mousePosition, cancelButton)) {
                     isUploadVisible = false;
                     sceneTextureNeedsUpdate = true; // Redraw base layer when closing
                 }
             }
             // Cursor for upload panel
-            if (CheckCollisionPointRec(mousePosition, closeButton)) {
+            if (CheckCollisionPointRec(mousePosition, cancelButton)) {
                 SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
             } else {
                 SetMouseCursor(MOUSE_CURSOR_DEFAULT);
@@ -216,46 +221,46 @@ int main(void) {
         } else {
             // Base layer (beneath blur)
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                bool wasEditing = songInput.editing || bpmInput.editing;
-                songInput.editing = CheckCollisionPointRec(mousePosition, songInput.bounds);
-                bpmInput.editing = CheckCollisionPointRec(mousePosition, bpmInput.bounds);
+                bool wasEditing = songSearchInput.editing || bpmValueEdit.editing;
+                songSearchInput.editing = CheckCollisionPointRec(mousePosition, songSearchInput.bounds);
+                bpmValueEdit.editing = CheckCollisionPointRec(mousePosition, bpmValueEdit.bounds);
 
                 if (CheckCollisionPointRec(mousePosition, plusButton)) {
                     isUploadVisible = true;
                     sceneTextureNeedsUpdate = false; // Stop updating beneath blur
                 }
 
-                if (songInput.editing && !wasEditing && songInput.textLength == 0) {
-                    songInput.text[0] = '\0';
-                    songInput.textLength = 0;
+                if (songSearchInput.editing && !wasEditing && songSearchInput.textLength == 0) {
+                    songSearchInput.text[0] = '\0';
+                    songSearchInput.textLength = 0;
                 }
-                if (bpmInput.editing && !wasEditing && bpmInput.textLength == 0) {
-                    bpmInput.text[0] = '\0';
-                    bpmInput.textLength = 0;
+                if (bpmValueEdit.editing && !wasEditing && bpmValueEdit.textLength == 0) {
+                    bpmValueEdit.text[0] = '\0';
+                    bpmValueEdit.textLength = 0;
                 }
             }
 
             if (IsKeyPressed(KEY_ENTER)) {
-                if (songInput.editing && songInput.textLength == 0) {
-                    strcpy(songInput.text, songInput.placeholder);
-                    songInput.textLength = strlen(songInput.placeholder);
+                if (songSearchInput.editing && songSearchInput.textLength == 0) {
+                    strcpy(songSearchInput.text, songSearchInput.placeholder);
+                    songSearchInput.textLength = strlen(songSearchInput.placeholder);
                 }
-                if (bpmInput.editing && bpmInput.textLength == 0) {
-                    strcpy(bpmInput.text, bpmInput.placeholder);
-                    bpmInput.textLength = strlen(bpmInput.placeholder);
+                if (bpmValueEdit.editing && bpmValueEdit.textLength == 0) {
+                    strcpy(bpmValueEdit.text, bpmValueEdit.placeholder);
+                    bpmValueEdit.textLength = strlen(bpmValueEdit.placeholder);
                 }
-                songInput.editing = false;
-                bpmInput.editing = false;
+                songSearchInput.editing = false;
+                bpmValueEdit.editing = false;
             }
 
-            if (songInput.editing) handleTextboxInput(&songInput);
-            if (bpmInput.editing) handleTextboxInput(&bpmInput);
+            if (songSearchInput.editing) handleTextboxInput(&songSearchInput);
+            if (bpmValueEdit.editing) handleTextboxInput(&bpmValueEdit);
 
             // Cursor for base layer
-            if (songInput.editing || bpmInput.editing) {
+            if (songSearchInput.editing || bpmValueEdit.editing) {
                 SetMouseCursor(MOUSE_CURSOR_IBEAM);
-            } else if (CheckCollisionPointRec(mousePosition, songInput.bounds) ||
-                       CheckCollisionPointRec(mousePosition, bpmInput.bounds) ||
+            } else if (CheckCollisionPointRec(mousePosition, songSearchInput.bounds) ||
+                       CheckCollisionPointRec(mousePosition, bpmValueEdit.bounds) ||
                        CheckCollisionPointRec(mousePosition, plusButton)) {
                 SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
             } else {
@@ -264,15 +269,15 @@ int main(void) {
         }
 
         // Update bound variables
-        if (songInput.textLength > 0 && strcmp(songInput.text, songInput.placeholder) != 0) {
-            strcpy(songName, songInput.text);
+        if (songSearchInput.textLength > 0 && strcmp(songSearchInput.text, songSearchInput.placeholder) != 0) {
+            strcpy(songName, songSearchInput.text);
         } else {
             songName[0] = '\0';
         }
-        if (bpmInput.textLength > 0 && strcmp(bpmInput.text, bpmInput.placeholder) != 0) {
-            bpm = atoi(bpmInput.text);
+        if (bpmValueEdit.textLength > 0 && strcmp(bpmValueEdit.text, bpmValueEdit.placeholder) != 0) {
+            bpm = atoi(bpmValueEdit.text);
         } else {
-            bpm = atoi(bpmInput.placeholder);
+            bpm = atoi(bpmValueEdit.placeholder);
         }
 
         // Render scene to texture only when needed
@@ -281,8 +286,8 @@ int main(void) {
                 DrawTextureRec(backgroundTexture.texture, 
                                (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
                                (Vector2){ 0, 0 }, WHITE);
-                drawTextboxText(&songInput, songInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
-                drawTextboxText(&bpmInput, bpmInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&songSearchInput, songSearchInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+                drawTextboxText(&bpmValueEdit, bpmValueEdit.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
             EndTextureMode();
         }
 
@@ -298,10 +303,16 @@ int main(void) {
                 EndShaderMode();
 
                 // Draw upload panel above blur
-                DrawRectangleRec(uploadPanel, toHex("#272930"));
-                // Draw close button
-                DrawRectangleRec(closeButton, toHex("#494D5A"));
-                DrawTextEx(boldGFS_h2, "X", (Vector2){ closeButton.x + 5, closeButton.y + 3 }, 14, 1, toHex("#FFFFFF"));
+                DrawRectangleRec(uploadPanel, toHex("#272930"));         
+                DrawRectangleRounded(pasteArea, 0.1f, 6, toHex("#2C2E36"));  
+                DrawRectangleRounded(songNameInput, 0.5f, 6, toHex("#222329"));  
+                DrawRectangleRounded(bpmValueInput, 0.5f, 6, toHex("#222329")); 
+                DrawRectangleRounded(uploadMidi, 0.5f, 6, toHex("#222329")); 
+                DrawRectangleRounded(cancelButton, 0.5f, 6, toHex("#222329"));
+                DrawRectangleRounded(saveButton, 0.5f, 6, toHex("#222329"));
+                DrawRectangle(170, 73, 150, 1, toHex("#494D5A"));
+                DrawRectangle(476, 226, 1, 20, toHex("#494D5A"));
+                DrawTextEx(boldGFS_h2, "upload song", (Vector2){ 170, 52 }, 14, 1, toHex("#F0F2FE"));
             } else {
                 // Normal render without blur
                 DrawTextureRec(sceneTexture.texture, 
