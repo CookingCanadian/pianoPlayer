@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
-#include <stdlib.h> 
+#include <stdlib.h>
+#include <ctype.h>
 #include "raylib.h"
 #include "resources/GFSNeohellenic_Italic.h"
 #include "resources/GFSNeohellenic_Bold.h"
@@ -45,6 +46,12 @@ typedef struct {
     int selectionEnd;           // End of text selection
 } DynamicTextbox;
 
+// Structure for saved songs
+typedef struct {
+    char* filename;        // Full path to the JSON file
+    char* songName;        // Extracted song name for display
+} SavedSong;
+
 Color toHex(const char* hex);
 void loadFonts(void);
 void unloadFonts(void);
@@ -52,6 +59,10 @@ void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea);
 void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor);
 void handleTextboxInput(Textbox* textbox, bool isPasteArea);
 void handleDynamicTextboxInput(DynamicTextbox* textbox);
+void loadSavedSongs(SavedSong** songs, int* songCount, const char* directory);
+void freeSavedSongs(SavedSong* songs, int songCount);
+char* getUniqueFilename(const char* baseName, const char* directory);
+char* sanitizeFilename(const char* input);
 
 // Global font variables
 Font italicGFS;
@@ -217,7 +228,7 @@ void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
         }
     }
 
-    // Scrolling logic (moved from handleDynamicTextboxInput)
+    // Scrolling logic
     Vector2 mousePos = GetMousePosition();
     if (CheckCollisionPointRec(mousePos, textbox->bounds)) {
         float wheel = GetMouseWheelMove();
@@ -512,6 +523,88 @@ void handleDynamicTextboxInput(DynamicTextbox* textbox) {
     if (textbox->cursorBlink > 1.0f) textbox->cursorBlink = 0.0f;
 }
 
+// Sanitize filename by replacing invalid characters
+char* sanitizeFilename(const char* input) {
+    char* output = strdup(input);
+    for (int i = 0; output[i]; i++) {
+        if (strchr("\\/:*?\"<>|", output[i])) {
+            output[i] = '_';
+        }
+    }
+    return output;
+}
+
+// Load saved songs from noctivoxFiles directory
+void loadSavedSongs(SavedSong** songs, int* songCount, const char* directory) {
+    FilePathList files = LoadDirectoryFiles(directory);
+    *songCount = 0;
+    *songs = NULL;
+
+    for (int i = 0; i < files.count; i++) {
+        if (IsFileExtension(files.paths[i], ".json")) {
+            char* content = LoadFileText(files.paths[i]);
+            if (content) {
+                char* songNameStart = strstr(content, "\"songName\": \"");
+                if (songNameStart) {
+                    songNameStart += 12; // Skip past '"songName": "'
+                    char* songNameEnd = strchr(songNameStart, '"');
+                    if (songNameEnd) {
+                        int songNameLen = songNameEnd - songNameStart;
+                        *songs = realloc(*songs, (*songCount + 1) * sizeof(SavedSong));
+                        (*songs)[*songCount].filename = strdup(files.paths[i]);
+                        (*songs)[*songCount].songName = malloc(songNameLen + 1);
+                        strncpy((*songs)[*songCount].songName, songNameStart, songNameLen);
+                        (*songs)[*songCount].songName[songNameLen] = '\0';
+                        (*songCount)++;
+                    }
+                }
+                UnloadFileText(content);
+            }
+        }
+    }
+    UnloadDirectoryFiles(files);
+    TraceLog(LOG_INFO, "Loaded %d songs from %s", *songCount, directory);
+}
+
+// Free memory allocated for saved songs
+void freeSavedSongs(SavedSong* songs, int songCount) {
+    for (int i = 0; i < songCount; i++) {
+        free(songs[i].filename);
+        free(songs[i].songName);
+    }
+    free(songs);
+}
+
+// Generate a unique filename by appending (1), (2), etc.
+char* getUniqueFilename(const char* baseName, const char* directory) {
+    char* sanitizedBase = sanitizeFilename(baseName);
+    char* filename = malloc(512);
+#ifdef _WIN32
+    snprintf(filename, 512, "%s\\%s.json", directory, sanitizedBase);
+#else
+    snprintf(filename, 512, "%s/%s.json", directory, sanitizedBase);
+#endif
+    if (!FileExists(filename)) {
+        free(sanitizedBase);
+        return filename;
+    }
+
+    int counter = 1;
+    do {
+        free(filename);
+        filename = malloc(512);
+#ifdef _WIN32
+        snprintf(filename, 512, "%s\\%s(%d).json", directory, sanitizedBase, counter);
+#else
+        snprintf(filename, 512, "%s/%s(%d).json", directory, sanitizedBase, counter);
+#endif
+        counter++;
+    } while (FileExists(filename));
+
+    free(sanitizedBase);
+    return filename;
+}
+
 // Gaussian blur fragment shader
 const char* blurShaderCode = 
     "#version 330\n"
@@ -536,6 +629,7 @@ int main(void) {
     const int screenHeight = 360;
     InitWindow(screenWidth, screenHeight, "noctivox | a virtual piano player");
     SetTargetFPS(60);
+    SetTraceLogLevel(LOG_ALL); // Enable all logging for debugging
 
     loadFonts();
 
@@ -556,7 +650,7 @@ int main(void) {
         DrawTextEx(boldGFS_h1, "noctivox", (Vector2){ 14, 8 }, 20, 1, toHex("#FFFFFF"));
         DrawTextEx(boldGFS_h1, "bpm:", (Vector2){ 226, 318 }, 20, 1, toHex("#9CA2B7"));
         DrawTextEx(italicGFS, "a virtual piano player", (Vector2){ 14, 30 }, 14, 1, toHex("#FFFFFF"));
-        DrawRectangle(14, 90, 180, 270, toHex("#FFFFFF")); // container for saved songs
+        DrawRectangle(14, 90, 180, 270, toHex("#272930")); // Container for saved songs
     EndTextureMode();
 
     RenderTexture2D sceneTexture = LoadRenderTexture(screenWidth, screenHeight);
@@ -604,6 +698,48 @@ int main(void) {
     char songName[64] = "";
     int bpm = 100;
 
+    // Saved songs list
+    SavedSong* savedSongs = NULL;
+    int songCount = 0;
+    float songListOffset = 0.0f; // Vertical scroll offset for song list
+    Rectangle songListBounds = { 14, 90, 180, 270 }; // Scrolling frame area
+
+    // Setup noctivoxFiles directory
+    char noctivoxDir[512];
+    const char* homeDir = getenv("USERPROFILE"); // Windows
+    if (!homeDir) homeDir = getenv("HOME");      // Unix-like
+    if (!homeDir) {
+        homeDir = GetWorkingDirectory();
+        TraceLog(LOG_WARNING, "No HOME or USERPROFILE found, using working directory: %s", homeDir);
+    }
+
+#ifdef _WIN32
+    snprintf(noctivoxDir, sizeof(noctivoxDir), "%s\\Downloads\\noctivoxFiles", homeDir);
+#else
+    snprintf(noctivoxDir, sizeof(noctivoxDir), "%s/Downloads/noctivoxFiles", homeDir);
+#endif
+
+    if (!DirectoryExists(noctivoxDir)) {
+        int result = MakeDirectory(noctivoxDir);
+        if (result == 0) {
+            TraceLog(LOG_INFO, "Created directory: %s", noctivoxDir);
+        } else {
+            TraceLog(LOG_ERROR, "Failed to create %s (error %d), falling back to working directory", noctivoxDir, result);
+            snprintf(noctivoxDir, sizeof(noctivoxDir), "%s/noctivoxFiles", GetWorkingDirectory());
+            if (!DirectoryExists(noctivoxDir)) {
+                result = MakeDirectory(noctivoxDir);
+                if (result == 0) {
+                    TraceLog(LOG_INFO, "Created fallback directory: %s", noctivoxDir);
+                } else {
+                    TraceLog(LOG_ERROR, "Failed to create fallback directory: %s (error %d)", noctivoxDir, result);
+                }
+            }
+        }
+    } else {
+        TraceLog(LOG_INFO, "Directory already exists: %s", noctivoxDir);
+    }
+    loadSavedSongs(&savedSongs, &songCount, noctivoxDir);
+
     while (!WindowShouldClose()) {
         Vector2 mousePosition = GetMousePosition();
 
@@ -636,6 +772,36 @@ int main(void) {
                 }
 
                 if (CheckCollisionPointRec(mousePosition, saveButton) && canSave) {
+                    char baseName[256];
+                    snprintf(baseName, sizeof(baseName), "%s_%s", songNameInput.text, bpmValueInput.text);
+                    char* filename = getUniqueFilename(baseName, noctivoxDir);
+                    FILE* file = fopen(filename, "w");
+                    if (file) {
+                        fprintf(file, "{\n");
+                        fprintf(file, "  \"songName\": \"%s\",\n", songNameInput.text);
+                        fprintf(file, "  \"BPM\": \"%s\",\n", bpmValueInput.text);
+                        fprintf(file, "  \"songInfo\": \"");
+                        for (int i = 0; i < pasteAreaInput.textLength; i++) {
+                            if (pasteAreaInput.text[i] == '\n') fputs("\\n", file);
+                            else if (pasteAreaInput.text[i] == '"') fputs("\\\"", file);
+                            else fputc(pasteAreaInput.text[i], file);
+                        }
+                        fprintf(file, "\"\n}\n");
+                        fclose(file);
+                        if (FileExists(filename)) {
+                            TraceLog(LOG_INFO, "Successfully saved song to: %s", filename);
+                        } else {
+                            TraceLog(LOG_ERROR, "File not found after save: %s", filename);
+                        }
+                    } else {
+                        TraceLog(LOG_ERROR, "Failed to open file for writing: %s", filename);
+                    }
+                    free(filename);
+
+                    // Reload saved songs
+                    freeSavedSongs(savedSongs, songCount);
+                    loadSavedSongs(&savedSongs, &songCount, noctivoxDir);
+
                     isUploadVisible = false;
                     sceneTextureNeedsUpdate = true;
                 }
@@ -661,12 +827,12 @@ int main(void) {
                        CheckCollisionPointRec(mousePosition, songNameInput.bounds) ||
                        CheckCollisionPointRec(mousePosition, bpmValueInput.bounds)) {
                 SetMouseCursor(MOUSE_CURSOR_IBEAM);
-            } else if (CheckCollisionPointRec(mousePosition, saveButton)) {
-                if (canSave) {
-                    SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
-                } else {
-                    SetMouseCursor(MOUSE_CURSOR_NOT_ALLOWED);
-                }
+            } else if (CheckCollisionPointRec(mousePosition, saveButton) && canSave) {
+                SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+            } else if (CheckCollisionPointRec(mousePosition, cancelButton)) {
+                SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
+            } else if (CheckCollisionPointRec(mousePosition, saveButton) && !canSave) {
+                SetMouseCursor(MOUSE_CURSOR_NOT_ALLOWED);
             } else {
                 SetMouseCursor(MOUSE_CURSOR_DEFAULT);
             }
@@ -681,8 +847,91 @@ int main(void) {
                     sceneTextureNeedsUpdate = false;
                 }
 
+                // Check for song selection in the scrolling list
+                if (CheckCollisionPointRec(mousePosition, songListBounds)) {
+                    float yOffset = mousePosition.y - songListBounds.y + songListOffset;
+                    int songHeight = 30;
+                    int selectedIndex = (int)(yOffset / songHeight);
+                    if (selectedIndex >= 0 && selectedIndex < songCount) {
+                        char* content = LoadFileText(savedSongs[selectedIndex].filename);
+                        if (content) {
+                            char* songNameStart = strstr(content, "\"songName\": \"");
+                            char* bpmStart = strstr(content, "\"BPM\": \"");
+                            char* songInfoStart = strstr(content, "\"songInfo\": \"");
+                            if (songNameStart && bpmStart && songInfoStart) {
+                                songNameStart += 12;
+                                bpmStart += 7;
+                                songInfoStart += 12;
+                                char* songNameEnd = strchr(songNameStart, '"');
+                                char* bpmEnd = strchr(bpmStart, '"');
+                                char* songInfoEnd = strchr(songInfoStart, '"');
+                                if (songNameEnd && bpmEnd && songInfoEnd) {
+                                    // Load song name
+                                    int songNameLen = songNameEnd - songNameStart;
+                                    strncpy(songSearchInput.text, songNameStart, songNameLen);
+                                    songSearchInput.text[songNameLen] = '\0';
+                                    songSearchInput.textLength = songNameLen;
+
+                                    // Load BPM
+                                    int bpmLen = bpmEnd - bpmStart;
+                                    strncpy(bpmValueEdit.text, bpmStart, bpmLen);
+                                    bpmValueEdit.text[bpmLen] = '\0';
+                                    bpmValueEdit.textLength = bpmLen;
+
+                                    // Load song info into paste area
+                                    int songInfoLen = songInfoEnd - songInfoStart;
+                                    char* tempSongInfo = malloc(songInfoLen + 1);
+                                    strncpy(tempSongInfo, songInfoStart, songInfoLen);
+                                    tempSongInfo[songInfoLen] = '\0';
+
+                                    // Unescape songInfo
+                                    char* unescaped = malloc(songInfoLen + 1);
+                                    int unescapedLen = 0;
+                                    for (int i = 0; i < songInfoLen; i++) {
+                                        if (tempSongInfo[i] == '\\' && i + 1 < songInfoLen) {
+                                            if (tempSongInfo[i + 1] == 'n') unescaped[unescapedLen++] = '\n';
+                                            else if (tempSongInfo[i + 1] == '"') unescaped[unescapedLen++] = '"';
+                                            i++;
+                                        } else {
+                                            unescaped[unescapedLen++] = tempSongInfo[i];
+                                        }
+                                    }
+                                    unescaped[unescapedLen] = '\0';
+
+                                    if (unescapedLen + 1 > pasteAreaInput.textCapacity) {
+                                        pasteAreaInput.textCapacity = unescapedLen + 256;
+                                        pasteAreaInput.text = realloc(pasteAreaInput.text, pasteAreaInput.textCapacity);
+                                    }
+                                    strcpy(pasteAreaInput.text, unescaped);
+                                    pasteAreaInput.textLength = unescapedLen;
+
+                                    free(tempSongInfo);
+                                    free(unescaped);
+                                    sceneTextureNeedsUpdate = true;
+                                    TraceLog(LOG_INFO, "Loaded song: %s", savedSongs[selectedIndex].songName);
+                                }
+                            }
+                            UnloadFileText(content);
+                        }
+                    }
+                }
+
                 if (songSearchInput.editing && !wasEditing) songSearchInput.cursorPos = songSearchInput.textLength;
                 if (bpmValueEdit.editing && !wasEditing) bpmValueEdit.cursorPos = bpmValueEdit.textLength;
+            }
+
+            // Handle scrolling in the song list
+            if (CheckCollisionPointRec(mousePosition, songListBounds)) {
+                float wheel = GetMouseWheelMove();
+                if (wheel != 0) {
+                    float totalHeight = songCount * 30; // Each song is 30px tall
+                    float maxHeight = songListBounds.height;
+                    songListOffset -= wheel * 20.0f;
+                    if (songListOffset < 0) songListOffset = 0;
+                    if (totalHeight > maxHeight && songListOffset > totalHeight - maxHeight) {
+                        songListOffset = totalHeight - maxHeight;
+                    }
+                }
             }
 
             if (IsKeyPressed(KEY_ENTER)) {
@@ -709,7 +958,8 @@ int main(void) {
                 SetMouseCursor(MOUSE_CURSOR_IBEAM);
             } else if (CheckCollisionPointRec(mousePosition, songSearchInput.bounds) ||
                        CheckCollisionPointRec(mousePosition, bpmValueEdit.bounds) ||
-                       CheckCollisionPointRec(mousePosition, plusButton)) {
+                       CheckCollisionPointRec(mousePosition, plusButton) ||
+                       CheckCollisionPointRec(mousePosition, songListBounds)) {
                 SetMouseCursor(MOUSE_CURSOR_POINTING_HAND);
             } else {
                 SetMouseCursor(MOUSE_CURSOR_DEFAULT);
@@ -735,7 +985,30 @@ int main(void) {
                                (Vector2){ 0, 0 }, WHITE);
                 drawTextboxText(&songSearchInput, songSearchInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
                 drawTextboxText(&bpmValueEdit, bpmValueEdit.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
+                drawDynamicTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
+
+                // Draw scrolling song list
+                BeginScissorMode(songListBounds.x, songListBounds.y, songListBounds.width, songListBounds.height);
+                float yPos = songListBounds.y - songListOffset;
+                for (int i = 0; i < songCount; i++) {
+                    Rectangle songRect = { songListBounds.x + 5, yPos, songListBounds.width - 10, 24 };
+                    bool hovered = CheckCollisionPointRec(mousePosition, songRect);
+                    DrawRectangleRounded(songRect, 0.5f, 6, hovered ? toHex("#393F5F") : toHex("#222329"));
+                    DrawTextEx(italicGFS, savedSongs[i].songName, 
+                               (Vector2){ songRect.x + 5, songRect.y + 5 }, 14, 1, toHex("#D0D0D0"));
+                    yPos += 30;
+                }
+                EndScissorMode();
+
+                // Scrollbar for song list
+                float totalHeight = songCount * 30;
+                if (totalHeight > songListBounds.height) {
+                    float scrollBarHeight = songListBounds.height * songListBounds.height / totalHeight;
+                    float scrollBarY = songListBounds.y + (songListOffset * (songListBounds.height - scrollBarHeight) / (totalHeight - songListBounds.height));
+                    DrawRectangle(songListBounds.x + songListBounds.width - 5, scrollBarY, 3, scrollBarHeight, toHex("#494D5A"));
+                }
             EndTextureMode();
+            sceneTextureNeedsUpdate = false;
         }
 
         BeginDrawing();
@@ -756,7 +1029,7 @@ int main(void) {
                 DrawRectangleRounded(cancelButton, 0.5f, 6, 
                     CheckCollisionPointRec(mousePosition, cancelButton) ? toHex("#2A2C33") : toHex("#222329"));
                 DrawRectangleRounded(saveButton, 0.5f, 6, 
-                    canSave ? toHex("#393F5F") : 
+                    canSave ? (CheckCollisionPointRec(mousePosition, saveButton) ? toHex("#494D5A") : toHex("#393F5F")) : 
                     (CheckCollisionPointRec(mousePosition, saveButton) ? toHex("#2A2C33") : toHex("#222329")));
                 drawDynamicTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"));
                 drawTextboxText(&songNameInput, songNameInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
@@ -785,6 +1058,7 @@ int main(void) {
 
     if (selectedMidiPath) free(selectedMidiPath);
     free(pasteAreaInput.text);
+    freeSavedSongs(savedSongs, songCount);
     UnloadRenderTexture(backgroundTexture);
     UnloadRenderTexture(sceneTexture);
     UnloadShader(blurShader);
