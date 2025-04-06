@@ -125,7 +125,6 @@ void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea) {
 }
 
 // Render dynamic textbox text (paste area)
-// Render dynamic textbox text (paste area)
 void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
     const char* displayText = (textbox->textLength == 0 && !textbox->editing) ? textbox->placeholder : textbox->text;
     float maxTextWidth = textbox->bounds.width - 15;
@@ -356,7 +355,6 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
 }
 
 // Input handling for dynamic textbox (paste area)
-// Input handling for dynamic textbox (paste area)
 void handleDynamicTextboxInput(DynamicTextbox* textbox) {
     Vector2 mousePos = GetMousePosition();
     bool mouseOver = CheckCollisionPointRec(mousePos, textbox->bounds);
@@ -558,6 +556,7 @@ int main(void) {
         DrawTextEx(boldGFS_h1, "noctivox", (Vector2){ 14, 8 }, 20, 1, toHex("#FFFFFF"));
         DrawTextEx(boldGFS_h1, "bpm:", (Vector2){ 226, 318 }, 20, 1, toHex("#9CA2B7"));
         DrawTextEx(italicGFS, "a virtual piano player", (Vector2){ 14, 30 }, 14, 1, toHex("#FFFFFF"));
+        DrawRectangle(14, 90, 180, 270, toHex("#FFFFFF")); // container for saved songs
     EndTextureMode();
 
     RenderTexture2D sceneTexture = LoadRenderTexture(screenWidth, screenHeight);
