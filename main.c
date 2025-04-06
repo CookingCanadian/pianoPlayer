@@ -6,37 +6,6 @@
 #include "resources/GFSNeohellenic_Bold.h"
 #include "resources/GFSNeohellenic_BoldItalic.h"
 
-// Convert hex color (e.g., "#FFFFFF") to raylib Color
-Color toHex(const char* hex) {
-    if (hex[0] == '#') hex++;
-    unsigned int r, g, b;
-    sscanf(hex, "%2x%2x%2x", &r, &g, &b);
-    return (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 };
-}
-
-// Global font variables
-Font italicGFS;
-Font boldGFS_h1;
-Font boldGFS_h2;
-Font boldItalicGFS;
-
-// Load fonts from memory
-void loadFonts(void) {
-    italicGFS = LoadFontFromMemory(".ttf", font_data_italic, sizeof(font_data_italic), 14, NULL, 0);
-    boldGFS_h1 = LoadFontFromMemory(".ttf", font_data_bold, sizeof(font_data_bold), 20, NULL, 0);
-    boldGFS_h2 = LoadFontFromMemory(".ttf", font_data_bold, sizeof(font_data_bold), 14, NULL, 0);
-    boldItalicGFS = LoadFontFromMemory(".ttf", font_data_bold_italic, sizeof(font_data_bold_italic), 12, NULL, 0);
-}
-
-// Unload fonts
-void unloadFonts(void) {
-    UnloadFont(italicGFS);
-    UnloadFont(boldGFS_h1);
-    UnloadFont(boldGFS_h2);
-    UnloadFont(boldItalicGFS);
-}
-
-// Textbox struct with selection support
 typedef struct {
     Rectangle bounds;           // Position and size
     char text[256];             // Buffer for larger text
@@ -55,40 +24,72 @@ typedef struct {
     int selectionEnd;           // End of text selection
 } Textbox;
 
+Color toHex(const char* hex);
+void loadFonts(void);
+void unloadFonts(void);
+void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea);
+void handleTextboxInput(Textbox* textbox, bool isPasteArea);
+
+// Global font variables
+Font italicGFS;
+Font boldGFS_h1;
+Font boldGFS_h2;
+Font boldItalicGFS;
+
+// Convert hex color (e.g., "#FFFFFF") to raylib Color
+Color toHex(const char* hex) {
+    if (hex[0] == '#') hex++;
+    unsigned int r, g, b;
+    sscanf(hex, "%2x%2x%2x", &r, &g, &b);
+    return (Color){ (unsigned char)r, (unsigned char)g, (unsigned char)b, 255 };
+}
+
+// Load fonts from memory
+void loadFonts(void) {
+    italicGFS = LoadFontFromMemory(".ttf", font_data_italic, sizeof(font_data_italic), 14, NULL, 0);
+    boldGFS_h1 = LoadFontFromMemory(".ttf", font_data_bold, sizeof(font_data_bold), 20, NULL, 0);
+    boldGFS_h2 = LoadFontFromMemory(".ttf", font_data_bold, sizeof(font_data_bold), 14, NULL, 0);
+    boldItalicGFS = LoadFontFromMemory(".ttf", font_data_bold_italic, sizeof(font_data_bold_italic), 12, NULL, 0);
+}
+
+// Unload fonts
+void unloadFonts(void) {
+    UnloadFont(italicGFS);
+    UnloadFont(boldGFS_h1);
+    UnloadFont(boldGFS_h2);
+    UnloadFont(boldItalicGFS);
+}
+
+// Function to render textbox text with scrolling and selection
 // Function to render textbox text with scrolling and selection
 void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea) {
     const char* displayText = (textbox->textLength == 0 && !textbox->editing) ? textbox->placeholder : textbox->text;
     Vector2 textSize = MeasureTextEx(textbox->font, displayText, textbox->fontSize, 1);
-    float maxTextWidth = isPasteArea ? textbox->bounds.width - 15 : textbox->bounds.width - 10; // Scrollbar space for paste area
+    float maxTextWidth = isPasteArea ? textbox->bounds.width - 15 : textbox->bounds.width - 10;
     float maxTextHeight = textbox->bounds.height - 10;
 
     // Horizontal offset
-    if (textSize.x > maxTextWidth) {
-        textbox->horizontalOffset = textSize.x - maxTextWidth;
-    } else {
-        textbox->horizontalOffset = 0;
-    }
+    textbox->horizontalOffset = (textSize.x > maxTextWidth) ? (textSize.x - maxTextWidth) : 0;
 
-    // Scissor mode for clipping
     Rectangle scissorRect = { textbox->bounds.x + 5, textbox->bounds.y + 5, maxTextWidth, maxTextHeight };
     BeginScissorMode(scissorRect.x, scissorRect.y, scissorRect.width, scissorRect.height);
 
-    // Draw text with vertical offset and line breaks (for paste area)
     float yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
-    char* textCopy = strdup(displayText);
-    char* line = isPasteArea ? strtok(textCopy, "\n") : textCopy;
     int charIndex = 0;
-    while (line != NULL) {
+    char* textCopy = strdup(displayText); // Copy for strtok
+    char* line = isPasteArea ? strtok(textCopy, "\n") : textCopy;
+
+    // Pre-calculate total height for scrollbar and draw text
+    float totalHeight = 0;
+    while (line) {
         DrawTextEx(textbox->font, line, 
                    (Vector2){ textbox->bounds.x + 5 - textbox->horizontalOffset, yPos }, 
                    textbox->fontSize, 1, textColor);
-        if (isPasteArea) {
-            yPos += textbox->fontSize + 2; // Line spacing
-            line = strtok(NULL, "\n");
-        } else {
-            break;
-        }
+        totalHeight += textbox->fontSize + 2;
+        yPos += textbox->fontSize + 2;
+        line = isPasteArea ? strtok(NULL, "\n") : NULL;
     }
+    free(textCopy);
 
     // Draw selection highlight
     if (textbox->selectionStart != -1 && textbox->selectionEnd != -1 && textbox->selectionStart != textbox->selectionEnd) {
@@ -96,50 +97,61 @@ void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea) {
         int end = textbox->selectionStart > textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
         yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
         charIndex = 0;
-        line = isPasteArea ? strtok(strdup(displayText), "\n") : displayText;
+        textCopy = strdup(displayText);
+        line = isPasteArea ? strtok(textCopy, "\n") : textCopy;
+
         while (line != NULL) {
             int lineLen = strlen(line);
             if (charIndex + lineLen >= start && charIndex <= end) {
-                float startX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (start - charIndex) / (float)lineLen - textbox->horizontalOffset;
-                float endX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (end > charIndex + lineLen ? 1 : (end - charIndex) / (float)lineLen) - textbox->horizontalOffset;
+                Vector2 lineSize = MeasureTextEx(textbox->font, line, textbox->fontSize, 1);
+                float startX = textbox->bounds.x + 5 - textbox->horizontalOffset;
+                float endX = startX + lineSize.x;
+                if (charIndex < start) startX += (start - charIndex) * lineSize.x / lineLen;
+                if (charIndex + lineLen > end) endX = startX + (end - charIndex) * lineSize.x / lineLen;
                 DrawRectangle(startX, yPos, endX - startX, textbox->fontSize, Fade(toHex("#FFFFFF"), 0.3f));
             }
             charIndex += lineLen + (isPasteArea ? 1 : 0);
             yPos += textbox->fontSize + (isPasteArea ? 2 : 0);
-            if (!isPasteArea) break;
-            line = strtok(NULL, "\n");
+            line = isPasteArea ? strtok(NULL, "\n") : NULL;
         }
+        free(textCopy);
     }
 
     // Draw cursor
     if (textbox->editing && textbox->cursorBlink < 0.5f) {
         yPos = textbox->bounds.y + 5 - (isPasteArea ? textbox->verticalOffset : 0);
-        charIndex = 0;
-        line = isPasteArea ? strtok(strdup(displayText), "\n") : displayText;
-        while (line != NULL) {
-            int lineLen = strlen(line);
-            if (charIndex + lineLen >= textbox->cursorPos) {
-                float cursorX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (textbox->cursorPos - charIndex) / (float)lineLen - textbox->horizontalOffset;
-                DrawRectangle(cursorX, yPos, 2, textbox->fontSize, textColor);
-                break;
+        if (textbox->textLength == 0) {
+            // Draw cursor at the start when textbox is empty
+            float cursorX = textbox->bounds.x + 5 - textbox->horizontalOffset;
+            DrawRectangle(cursorX, yPos, 2, textbox->fontSize, textColor);
+        } else {
+            // Draw cursor based on text position
+            charIndex = 0;
+            textCopy = strdup(displayText);
+            line = isPasteArea ? strtok(textCopy, "\n") : textCopy;
+
+            while (line != NULL) {
+                int lineLen = strlen(line);
+                if (charIndex + lineLen >= textbox->cursorPos) {
+                    float cursorX = textbox->bounds.x + 5 + MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x * (textbox->cursorPos - charIndex) / (float)lineLen - textbox->horizontalOffset;
+                    DrawRectangle(cursorX, yPos, 2, textbox->fontSize, textColor);
+                    break;
+                }
+                charIndex += lineLen + (isPasteArea ? 1 : 0);
+                yPos += textbox->fontSize + (isPasteArea ? 2 : 0);
+                line = isPasteArea ? strtok(NULL, "\n") : NULL;
             }
-            charIndex += lineLen + (isPasteArea ? 1 : 0);
-            yPos += textbox->fontSize + (isPasteArea ? 2 : 0);
-            if (!isPasteArea) break;
-            line = strtok(NULL, "\n");
+            free(textCopy);
         }
     }
-    free(textCopy);
+
     EndScissorMode();
 
-    // Draw scrollbar (only for paste area)
-    if (isPasteArea) {
-        float totalHeight = yPos - (textbox->bounds.y + 5 - textbox->verticalOffset);
-        if (totalHeight > maxTextHeight) {
-            float scrollBarHeight = maxTextHeight * maxTextHeight / totalHeight;
-            float scrollBarY = textbox->bounds.y + 5 + (textbox->verticalOffset * (maxTextHeight - scrollBarHeight) / (totalHeight - maxTextHeight));
-            DrawRectangle(textbox->bounds.x + textbox->bounds.width - 10, scrollBarY, 5, scrollBarHeight, toHex("#494D5A"));
-        }
+    // Scrollbar
+    if (isPasteArea && totalHeight > maxTextHeight) {
+        float scrollBarHeight = maxTextHeight * maxTextHeight / totalHeight;
+        float scrollBarY = textbox->bounds.y + 5 + (textbox->verticalOffset * (maxTextHeight - scrollBarHeight) / (totalHeight - maxTextHeight));
+        DrawRectangle(textbox->bounds.x + textbox->bounds.width - 10, scrollBarY, 5, scrollBarHeight, toHex("#494D5A"));
     }
 }
 
@@ -157,10 +169,12 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
         int charIndex = 0;
         char* line = isPasteArea ? strtok(strdup(textbox->text), "\n") : textbox->text;
         int lineNum = isPasteArea ? (int)(yOffset / (textbox->fontSize + 2)) : 0;
+
         for (int i = 0; i < lineNum && line && isPasteArea; i++) {
             charIndex += strlen(line) + 1;
             line = strtok(NULL, "\n");
         }
+
         if (line) {
             float lineWidth = MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x;
             int pos = (int)((xOffset / lineWidth) * strlen(line));
@@ -177,10 +191,12 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
         int lineNum = isPasteArea ? (int)(yOffset / (textbox->fontSize + 2)) : 0;
         int charIndex = 0;
         char* line = isPasteArea ? strtok(strdup(textbox->text), "\n") : textbox->text;
+
         for (int i = 0; i < lineNum && line && isPasteArea; i++) {
             charIndex += strlen(line) + 1;
             line = strtok(NULL, "\n");
         }
+
         if (line) {
             float lineWidth = MeasureTextEx(textbox->font, line, textbox->fontSize, 1).x;
             int pos = (int)((xOffset / lineWidth) * strlen(line));
@@ -189,6 +205,7 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
         }
     }
 
+    // Handle character input
     int key = GetCharPressed();
     while (key > 0) {
         if (textbox->textLength < 255) {
@@ -216,6 +233,7 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
             int len = strlen(clipboard);
             int spaceLeft = 255 - textbox->textLength;
             int charsToCopy = (len < spaceLeft) ? len : spaceLeft;
+
             if (textbox->numericOnly) {
                 for (int i = 0; i < charsToCopy; i++) {
                     if (clipboard[i] >= '0' && clipboard[i] <= '9') {
@@ -239,7 +257,17 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
         textbox->cursorPos = textbox->textLength;
     }
 
-    // Handle backspace with selection
+    // Cursor movement with arrow keys
+    if (IsKeyPressed(KEY_LEFT) && textbox->cursorPos > 0) {
+        textbox->cursorPos--;
+        textbox->selectionStart = textbox->selectionEnd = -1; // Clear selection
+    }
+    if (IsKeyPressed(KEY_RIGHT) && textbox->cursorPos < textbox->textLength) {
+        textbox->cursorPos++;
+        textbox->selectionStart = textbox->selectionEnd = -1;
+    }
+
+    // Handle backspace with selection or single character
     if (IsKeyPressed(KEY_BACKSPACE) && textbox->textLength > 0) {
         if (textbox->selectionStart != -1 && textbox->selectionEnd != -1 && textbox->selectionStart != textbox->selectionEnd) {
             int start = textbox->selectionStart < textbox->selectionEnd ? textbox->selectionStart : textbox->selectionEnd;
@@ -254,16 +282,20 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
             textbox->textLength--;
             textbox->cursorPos--;
         }
+        textbox->backspaceTimer = 0.3f; // Initial delay
     }
-    if (IsKeyDown(KEY_BACKSPACE)) {
-        textbox->backspaceTimer += GetFrameTime();
-        if (textbox->backspaceTimer > 0.3f && textbox->cursorPos > 0) {
+
+    // Continuous backspace when held
+    if (IsKeyDown(KEY_BACKSPACE) && textbox->textLength > 0 && textbox->cursorPos > 0) {
+        textbox->backspaceTimer -= GetFrameTime();
+        if (textbox->backspaceTimer <= 0) {
             memmove(textbox->text + textbox->cursorPos - 1, textbox->text + textbox->cursorPos, textbox->textLength - textbox->cursorPos + 1);
             textbox->textLength--;
             textbox->cursorPos--;
-            textbox->backspaceTimer = 0.25f;
+            textbox->backspaceTimer = 0.05f; // Faster repeat rate
         }
     }
+
     if (IsKeyReleased(KEY_BACKSPACE)) {
         textbox->backspaceTimer = 0;
     }
@@ -273,10 +305,12 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
         float wheel = GetMouseWheelMove();
         float totalHeight = 0;
         char* line = strtok(strdup(textbox->text), "\n");
+
         while (line) {
             totalHeight += textbox->fontSize + 2;
             line = strtok(NULL, "\n");
         }
+
         float maxHeight = textbox->bounds.height - 10;
         if (totalHeight > maxHeight) {
             textbox->verticalOffset -= wheel * 20.0f;
@@ -291,7 +325,7 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
     if (textbox->cursorBlink > 1.0f) textbox->cursorBlink = 0.0f;
 }
 
-// Gaussian blur fragment shader 
+// Gaussian blur fragment shader
 const char* blurShaderCode = 
     "#version 330\n"
     "in vec2 fragTexCoord;\n"
@@ -307,13 +341,12 @@ const char* blurShaderCode =
     "    color += texture(texture0, fragTexCoord - vec2(texelSize.x, 0.0)) * weights[1];\n"
     "    color += texture(texture0, fragTexCoord + vec2(0.0, texelSize.y)) * weights[1];\n"
     "    color += texture(texture0, fragTexCoord - vec2(0.0, texelSize.y)) * weights[1];\n"
-    "    fragColor = color * 0.8f;\n" 
-    "}\n";
+    "    fragColor = color * 0.8f;\n"
+    "}";
 
 int main(void) {
     const int screenWidth = 720;
     const int screenHeight = 360;
-
     InitWindow(screenWidth, screenHeight, "noctivox | a virtual piano player");
     SetTargetFPS(60);
 
@@ -366,11 +399,11 @@ int main(void) {
         false, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
     Textbox songNameInput = { 
-        { 170, 226, 297, 20 }, "", 0, false, 0.0f, 
+        { 170, 226, 297, 24 }, "", 0, false, 0.0f, 
         false, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
     Textbox bpmValueInput = { 
-        { 486, 226, 64, 20 }, "", 0, false, 0.0f, 
+        { 486, 226, 64, 24 }, "", 0, false, 0.0f, 
         true, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
 
@@ -419,6 +452,7 @@ int main(void) {
                     isUploadVisible = false;
                     sceneTextureNeedsUpdate = true;
                 }
+
                 if (CheckCollisionPointRec(mousePosition, saveButton) && canSave) {
                     isUploadVisible = false;
                     sceneTextureNeedsUpdate = true;
@@ -475,11 +509,13 @@ int main(void) {
                     songSearchInput.textLength = strlen(songSearchInput.placeholder);
                     songSearchInput.cursorPos = songSearchInput.textLength;
                 }
+
                 if (bpmValueEdit.editing && bpmValueEdit.textLength == 0) {
                     strcpy(bpmValueEdit.text, bpmValueEdit.placeholder);
                     bpmValueEdit.textLength = strlen(bpmValueEdit.placeholder);
                     bpmValueEdit.cursorPos = bpmValueEdit.textLength;
                 }
+
                 songSearchInput.editing = false;
                 bpmValueEdit.editing = false;
             }
@@ -504,6 +540,7 @@ int main(void) {
         } else {
             songName[0] = '\0';
         }
+
         if (bpmValueEdit.textLength > 0 && strcmp(bpmValueEdit.text, bpmValueEdit.placeholder) != 0) {
             bpm = atoi(bpmValueEdit.text);
         } else {
@@ -523,14 +560,12 @@ int main(void) {
 
         BeginDrawing();
             ClearBackground(BLACK);
-
             if (isUploadVisible) {
                 BeginShaderMode(blurShader);
                     DrawTextureRec(sceneTexture.texture, 
                                    (Rectangle){ 0, 0, screenWidth, -screenHeight }, 
                                    (Vector2){ 0, 0 }, WHITE);
                 EndShaderMode();
-
                 DrawRectangleRec(uploadPanel, toHex("#272930"));         
                 DrawRectangleRounded(pasteAreaInput.bounds, 0.1f, 6, 
                     CheckCollisionPointRec(mousePosition, pasteAreaInput.bounds) ? toHex("#33353E") : toHex("#2C2E36"));  
@@ -543,11 +578,9 @@ int main(void) {
                 DrawRectangleRounded(saveButton, 0.5f, 6, 
                     canSave ? toHex("#393F5F") : 
                     (CheckCollisionPointRec(mousePosition, saveButton) ? toHex("#2A2C33") : toHex("#222329")));
-
                 drawTextboxText(&pasteAreaInput, pasteAreaInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), true);
                 drawTextboxText(&songNameInput, songNameInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
                 drawTextboxText(&bpmValueInput, bpmValueInput.editing ? toHex("#FFFFFF") : toHex("#D0D0D0"), false);
-
                 DrawRectangle(170, 73, 150, 1, toHex("#494D5A"));
                 DrawRectangle(476, 226, 1, 20, toHex("#494D5A"));
                 DrawTextEx(boldGFS_h1, "upload song", (Vector2){ 170, 50 }, 20, 1, toHex("#F0F2FE"));
@@ -556,7 +589,6 @@ int main(void) {
                 DrawTextEx(italicGFS, "bpm:", (Vector2){ 486, 212 }, 14, 1, toHex("#979EBB"));
                 DrawTextEx(boldGFS_h2, "cancel", (Vector2){ 375, 284 }, 14, 1, toHex("#F0F2FE"));
                 DrawTextEx(boldGFS_h2, "save", (Vector2){ 491, 284 }, 14, 1, toHex("#F0F2FE"));
-
                 if (selectedMidiPath) {
                     DrawTextEx(italicGFS, selectedMidiPath, (Vector2){ 170, 250 }, 14, 1, toHex("#D0D0D0"));
                     DrawTextEx(italicGFS, "file uploaded", (Vector2){ 480, 74 }, 14, 1, toHex("#D0D0D0"));
