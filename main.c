@@ -125,6 +125,7 @@ void drawTextboxText(Textbox* textbox, Color textColor, bool isPasteArea) {
 }
 
 // Render dynamic textbox text (paste area)
+// Render dynamic textbox text (paste area)
 void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
     const char* displayText = (textbox->textLength == 0 && !textbox->editing) ? textbox->placeholder : textbox->text;
     float maxTextWidth = textbox->bounds.width - 15;
@@ -149,7 +150,7 @@ void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
     int charIndex = 0;
     float totalHeight = 0;
 
-    // Render each line cleanly
+    // Render each line
     char* textCopy = strdup(displayText);
     char* line = strtok(textCopy, "\n");
     while (line) {
@@ -158,7 +159,7 @@ void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
                    textbox->fontSize, 1, textColor);
         totalHeight += textbox->fontSize + 2;
         yPos += textbox->fontSize + 2;
-        charIndex += strlen(line) + 1; // +1 for the newline
+        charIndex += strlen(line) + 1;
         line = strtok(NULL, "\n");
     }
     free(textCopy);
@@ -214,6 +215,21 @@ void drawDynamicTextboxText(DynamicTextbox* textbox, Color textColor) {
                 line = strtok(NULL, "\n");
             }
             free(textCopy);
+        }
+    }
+
+    // Scrolling logic (moved from handleDynamicTextboxInput)
+    Vector2 mousePos = GetMousePosition();
+    if (CheckCollisionPointRec(mousePos, textbox->bounds)) {
+        float wheel = GetMouseWheelMove();
+        if (wheel != 0) {
+            if (totalHeight > maxTextHeight) {
+                textbox->verticalOffset -= wheel * 20.0f;
+                if (textbox->verticalOffset < 0) textbox->verticalOffset = 0;
+                if (textbox->verticalOffset > totalHeight - maxTextHeight) textbox->verticalOffset = totalHeight - maxTextHeight;
+            } else {
+                textbox->verticalOffset = 0;
+            }
         }
     }
 
@@ -340,6 +356,7 @@ void handleTextboxInput(Textbox* textbox, bool isPasteArea) {
 }
 
 // Input handling for dynamic textbox (paste area)
+// Input handling for dynamic textbox (paste area)
 void handleDynamicTextboxInput(DynamicTextbox* textbox) {
     Vector2 mousePos = GetMousePosition();
     bool mouseOver = CheckCollisionPointRec(mousePos, textbox->bounds);
@@ -418,13 +435,12 @@ void handleDynamicTextboxInput(DynamicTextbox* textbox) {
                 textbox->textCapacity = newLength + 256;
                 textbox->text = realloc(textbox->text, textbox->textCapacity);
             }
-            // Clean clipboard input: Replace \r\n with \n
             char* cleanClipboard = malloc(len + 1);
             int cleanLen = 0;
             for (int i = 0; i < len; i++) {
                 if (clipboard[i] == '\r' && i + 1 < len && clipboard[i + 1] == '\n') {
                     cleanClipboard[cleanLen++] = '\n';
-                    i++; // Skip the \n
+                    i++;
                 } else if (clipboard[i] != '\r') {
                     cleanClipboard[cleanLen++] = clipboard[i];
                 }
@@ -492,26 +508,6 @@ void handleDynamicTextboxInput(DynamicTextbox* textbox) {
 
     if (IsKeyReleased(KEY_BACKSPACE)) {
         textbox->backspaceTimer = 0;
-    }
-
-    if (mouseOver) {
-        float wheel = GetMouseWheelMove();
-        float totalHeight = 0;
-        char* line = strtok(strdup(textbox->text), "\n");
-
-        while (line) {
-            totalHeight += textbox->fontSize + 2;
-            line = strtok(NULL, "\n");
-        }
-
-        float maxHeight = textbox->bounds.height - 10;
-        if (totalHeight > maxHeight) {
-            textbox->verticalOffset -= wheel * 20.0f;
-            if (textbox->verticalOffset < 0) textbox->verticalOffset = 0;
-            if (textbox->verticalOffset > totalHeight - maxHeight) textbox->verticalOffset = totalHeight - maxHeight;
-        } else {
-            textbox->verticalOffset = 0;
-        }
     }
 
     textbox->cursorBlink += GetFrameTime();
@@ -591,11 +587,11 @@ int main(void) {
 
     // Fixed-size textboxes for upload panel
     Textbox songNameInput = { 
-        { 170, 226, 297, 20 }, "", 0, false, 0.0f, 
+        { 170, 226, 297, 24 }, "", 0, false, 0.0f, 
         false, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
     Textbox bpmValueInput = { 
-        { 486, 226, 64, 20 }, "", 0, false, 0.0f, 
+        { 486, 226, 64, 24 }, "", 0, false, 0.0f, 
         true, italicGFS, 14, 0, 0, 0, "", 0, -1, -1 
     };
 
